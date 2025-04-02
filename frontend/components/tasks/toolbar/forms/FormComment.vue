@@ -60,7 +60,7 @@ export default Vue.extend({
   },
 
   async created() {
-    this.user = await this.$services.user.getProfile()
+    this.user = await this.$repositories.user.getProfile()
   },
 
   methods: {

@@ -18,28 +18,22 @@ import {
   QuestionTypeRepository
 } from '~/domain/models/perspective/question/questionRepository'
 
+
 export class QuestionApplicationService {
   constructor(private readonly repository: QuestionRepository) {}
 
-  public async create(item: CreateQuestionCommand): Promise<QuestionDTO> {
-    const answers = item.answers.map((a) => new AnswerItem(0, a.answer, a.memberId, a.questionId))
-    const question = new QuestionItem(
-      0,
-      item.question,
-      item.type,
-      answers,
-      item.perspective_id,
-      item.options_group
-    )
+  public async create(projectId: string, item: CreateQuestionCommand): Promise<QuestionDTO> {
+    const answers = item.answers.map((a) => new AnswerItem(0, a.member, a.question, a.answer_text, a.answer_option))
+    const question = new QuestionItem(0, item.question, item.type, answers, item.perspective_id ?? 0, item.options_group ?? 0)
 
-    const created = await this.repository.create(question)
+    const created = await this.repository.create(projectId, question)
     return new QuestionDTO(created)
   }
 
-  public async list(): Promise<QuestionDTO[]> {
-    const questions = await this.repository.list()
-    return questions.map((question) => new QuestionDTO(question))
+  public async list(perspectiveId: number, projectId: string): Promise<QuestionItem[]> {
+    return await this.repository.list(perspectiveId, projectId)
   }
+  
 }
 export class OptionsGroupApplicationService {
   constructor(private readonly repository: OptionsGroupRepository) {}
@@ -58,6 +52,10 @@ export class OptionsGroupApplicationService {
     const item = await this.repository.findByName(projectId, name)
     return new OptionsGroupDTO(item)
   }
+
+  public async list(project_id: string): Promise<OptionsGroupItem[]> {
+    return await this.repository.list(project_id)
+  }
 }
 
 export class OptionsQuestionApplicationService {
@@ -71,6 +69,10 @@ export class OptionsQuestionApplicationService {
 
     const created = await this.repository.create(project_id, optionsQuestion)
     return new OptionsQuestionDTO(created)
+  }
+
+  public async list(project_id: string): Promise<OptionsQuestionItem[]> {
+    return await this.repository.list(project_id)
   }
 }
 

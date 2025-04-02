@@ -125,6 +125,7 @@ export default Vue.extend({
       dialogClear: false,
       dialogComment: false,
       dialogGuideline: false,
+      dialogNewAction: false,
       dialogShortcut: false,
       errorMessage: ''
     }
@@ -142,6 +143,15 @@ export default Vue.extend({
     orderOption(): string {
       // @ts-ignore
       return this.$route.query.ordering
+    }
+  },
+
+  watch: {
+    docId(newVal) {
+      console.log('[ToolbarLaptop.vue] docId changed to:', newVal)
+    },
+    dialogNewAction(newVal) {
+      console.log('[ToolbarLaptop.vue] dialogNewAction changed to:', newVal)
     }
   },
 

@@ -96,7 +96,7 @@ class AnswerSerializer(serializers.ModelSerializer):
 class QuestionSerializer(serializers.ModelSerializer):
     answers = AnswerSerializer(many=True, read_only=True)
     perspective = serializers.PrimaryKeyRelatedField(
-        queryset=Perspective.objects.all(), write_only=True, required=False
+        queryset=Perspective.objects.all(), required=False
     )
     type = serializers.PrimaryKeyRelatedField(queryset=QuestionType.objects.all())
     options_group = serializers.PrimaryKeyRelatedField(queryset=OptionsGroup.objects.all(), required=False)
@@ -256,3 +256,15 @@ class ProjectPolymorphicSerializer(PolymorphicSerializer):
         Project: ProjectSerializer,
         **{cls.Meta.model: cls for cls in ProjectSerializer.__subclasses__()},
     }
+
+class PerspectiveListSerializer(serializers.ModelSerializer):
+    project_id = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.all(),
+        source="project"
+    )
+    project_name = serializers.CharField(source="project.name", read_only=True)
+    creator_name = serializers.CharField(source="created_by.username", read_only=True)
+
+    class Meta:
+        model = Perspective
+        fields = ("id", "project_id", "project_name", "creator_name", "created_at")

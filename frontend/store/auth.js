@@ -2,7 +2,8 @@ export const state = () => ({
   username: null,
   id: null,
   isAuthenticated: false,
-  isStaff: false
+  isStaff: false,
+  isSuperUser: false
 })
 
 export const mutations = {
@@ -46,7 +47,6 @@ export const getters = {
 
 export const actions = {
   async authenticateUser({ commit }, authData) {
-    console.log('authData', authData)
     try {
       await this.$repositories.auth.login(authData.username, authData.password)
       commit('setAuthenticated', true)
@@ -68,14 +68,17 @@ export const actions = {
     } catch {
       commit('setAuthenticated', false)
       commit('setIsStaff', false)
+      commit('setIsSuperUser', false)
     }
   },
   async logout({ commit }) {
     await this.$repositories.auth.logout()
     commit('setAuthenticated', false)
     commit('setIsStaff', false)
+    commit('setIsSuperUser', false)
     commit('clearUsername')
   },
+
   async registerUser(_,authData) {
     console.log('authData', authData)
     try {

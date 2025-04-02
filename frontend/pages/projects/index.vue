@@ -53,7 +53,8 @@ export default Vue.extend({
       dialogDelete: false,
       projects: {} as Page<Project>,
       selected: [] as Project[],
-      isLoading: false
+      isLoading: false,
+      drawerLeft: null
     }
   },
 
@@ -66,7 +67,7 @@ export default Vue.extend({
   },
 
   computed: {
-    ...mapGetters('auth', ['isStaff']),
+    ...mapGetters('auth', ['isStaff', 'isSuperUser']),
     canDelete(): boolean {
       return this.selected.length > 0
     },
@@ -75,7 +76,6 @@ export default Vue.extend({
       return this.selected.length === 1
     }
   },
-
   watch: {
     '$route.query': _.debounce(function () {
       // @ts-ignore
