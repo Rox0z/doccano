@@ -4,7 +4,7 @@
     <v-select
       v-model="selectedQuestion"
       :items="availableQuestions"
-      label="Selecione a pergunta"
+      label="Select the question from perspective"
       clearable
       class="mb-4"
     />
@@ -37,10 +37,10 @@
       <template #[`header.data-table-select`]>
         <!-- slot vazio -->
       </template>
-      <template #[`item.responses`]="{ item }">
+      <template #[`item.responses`] = "{ item }">
         <div style="white-space: pre-line;">{{ item.responsesText }}</div>
       </template>
-      <template #[`item.members`]="{ item }">
+      <template #[`item.members`] = "{ item }">
         <div>{{ item.memberName }}</div>
       </template>
     </v-data-table>
@@ -95,7 +95,7 @@ export default Vue.extend({
   computed: {
     headers() {
       return [
-        { text: this.$t('Created by'), value: 'members', sortable: true },
+        { text: this.$t('Answered by'), value: 'members', sortable: true },
         { text: this.$t('Answers'), value: 'responses', sortable: true }
       ]
     },
@@ -150,24 +150,23 @@ export default Vue.extend({
             })
           }
         })
-        // Log para indicar se o usuário possui respostas
-        if (responses.length > 0) {
-          console.log(`User ${memberId} tem respostas:`, responses)
-        } else {
-          console.log(`User ${memberId} não tem respostas.`)
-        }
-        // Se existirem respostas para esse memberId, aplica o filtro de busca (se houver) e adiciona ao resultado
+        // Apenas inclui o membro se houver respostas
         if (responses.length > 0) {
           const joinedResponses = responses.join('\n')
+          const memberName = this.memberNames[memberId] || memberId.toString()
+          // Aplica o filtro de busca: pesquisa no nome do membro e nas respostas
           if (this.search) {
             const searchLower = this.search.toLowerCase()
-            if (!joinedResponses.toLowerCase().includes(searchLower)) {
+            if (
+              !memberName.toLowerCase().includes(searchLower) &&
+              !joinedResponses.toLowerCase().includes(searchLower)
+            ) {
               continue // passa para o próximo memberId
             }
           }
           result.push({
             id: memberId,
-            memberName: this.memberNames[memberId] || memberId.toString(),
+            memberName,
             responsesText: joinedResponses
           })
         }
