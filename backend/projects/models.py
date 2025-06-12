@@ -202,6 +202,9 @@ class Member(models.Model):
     role = models.ForeignKey(to=Role, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    perspective = models.ForeignKey(
+        to="Perspective", on_delete=models.SET_NULL, null=True, blank=True, related_name="members"
+    )
     objects = MemberManager()
 
     def clean(self):
@@ -219,3 +222,42 @@ class Member(models.Model):
 
     class Meta:
         unique_together = ("user", "project")
+
+
+class Perspective(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True)
+    project = models.OneToOneField(Project, on_delete=models.CASCADE)
+
+
+class QuestionType(models.Model):
+    id = models.IntegerField(primary_key=True)
+    question_type = models.TextField()
+
+
+class OptionsGroup(models.Model):
+    name = models.TextField()
+
+
+class OptionQuestion(models.Model):
+    option = models.TextField()
+    options_group = models.ForeignKey(
+        OptionsGroup, null=True, blank=True, on_delete=models.CASCADE, related_name="option_questions"
+    )
+
+
+class Question(models.Model):
+    perspective = models.ForeignKey(Perspective, on_delete=models.CASCADE, related_name="questions")
+    question = models.TextField()
+    type = models.ForeignKey(QuestionType, on_delete=models.CASCADE, related_name="type")
+    options_group = models.ForeignKey(
+        OptionsGroup, null=True, blank=True, on_delete=models.CASCADE, related_name="options_group"
+    )
+
+
+class Answer(models.Model):
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answers")
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name="answers_created", null=True, blank=True)
+    answer_text = models.TextField()
+    answer_option = models.ForeignKey(
+        OptionQuestion, null=True, blank=True, on_delete=models.CASCADE, related_name="answer_options"
+    )

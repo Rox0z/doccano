@@ -82,7 +82,7 @@ export class APIExampleRepository implements ExampleRepository {
 
   async list(
     projectId: string,
-    { limit = '10', offset = '0', q = '', isChecked = '', ordering = '', include_annotation = false }: SearchOption
+    { limit = '10', offset = '0', q = '', isChecked = '', ordering = '' }: SearchOption
   ): Promise<ExampleItemList> {
     // @ts-ignore
     const params = buildQueryParams(limit, offset, q, isChecked, ordering, include_annotation)

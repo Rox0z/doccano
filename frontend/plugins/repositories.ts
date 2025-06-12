@@ -25,6 +25,13 @@ import { APIParseRepository } from '@/repositories/upload/apiParseRepository'
 import { APIUserRepository } from '@/repositories/user/apiUserRepository'
 import { APISegmentationRepository } from '~/repositories/tasks/apiSegmentationRepository'
 import { APIGroupRepository } from '~/repositories/group/apiGroupRepository'
+import { APIAnswerRepository } from '~/repositories/perspective/answer/apiAnswerRepository'
+import { APIPerspectiveRepository } from '~/repositories/perspective/apiPerspectiveRepository'
+import { APIQuestionRepository } from '~/repositories/perspective/question/apiQuestionRepository'
+import { APIOptionsQuestionRepository } from '~/repositories/perspective/question/apiOptionsQuestionReposity'
+import { APIQuestionTypeRepository } from '~/repositories/perspective/question/apiQuestionTypeReposity'
+import { APIOptionsGroupRepository } from '~/repositories/perspective/question/apiOptionsGroupRepository'
+
 export interface Repositories {
   // User
   auth: APIAuthRepository
@@ -38,6 +45,12 @@ export interface Repositories {
   member: APIMemberRepository
   role: APIRoleRepository
   tag: APITagRepository
+  optionsGroup: APIOptionsGroupRepository
+  perspective: APIPerspectiveRepository
+  question: APIQuestionRepository
+  optionsQuestion: APIOptionsQuestionRepository
+  questionType: APIQuestionTypeRepository
+  answer: APIAnswerRepository 
 
   // Example
   example: APIExampleRepository
@@ -92,6 +105,12 @@ const repositories: Repositories = {
   member: new APIMemberRepository(),
   role: new APIRoleRepository(),
   tag: new APITagRepository(),
+  optionsGroup: new APIOptionsGroupRepository(),
+  perspective: new APIPerspectiveRepository(),
+  question: new APIQuestionRepository(),
+  optionsQuestion: new APIOptionsQuestionRepository(),
+  questionType: new APIQuestionTypeRepository(),
+  answer: new APIAnswerRepository(),
 
   // Example
   example: new APIExampleRepository(),

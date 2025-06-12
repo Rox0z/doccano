@@ -10,6 +10,10 @@ import { SegmentationApplicationService } from '@/services/application/tasks/seg
 import { SequenceLabelingApplicationService } from '@/services/application/tasks/sequenceLabeling/sequenceLabelingApplicationService'
 import { UserApplicationService } from '~/services/application/user/UserApplicationService'
 import { GroupApplicationService } from '~/services/application/group/GroupApplicationService'
+import { OptionsGroupApplicationService } from '~/services/application/perspective/question/optionsGroupApplicationService'
+import { PerspectiveApplicationService } from '~/services/application/perspective/perspectiveApplicationService'
+import { QuestionApplicationService, OptionsQuestionApplicationService, QuestionTypeApplicationService } from '~/services/application/perspective/question/questionApplicationService'
+import { AnswerApplicationService } from '~/services/application/perspective/answer/answerApplicationService'
 
 export interface Services {
   categoryType: LabelApplicationService
@@ -23,7 +27,13 @@ export interface Services {
   bbox: BoundingBoxApplicationService
   segmentation: SegmentationApplicationService,
   user: UserApplicationService,
-  group: GroupApplicationService
+  perspective: PerspectiveApplicationService
+  group: GroupApplicationService,
+  optionsGroup: OptionsGroupApplicationService
+  optionsQuestion: OptionsQuestionApplicationService
+  questionType: QuestionTypeApplicationService
+  question: QuestionApplicationService
+  answer: AnswerApplicationService
 }
 
 declare module 'vue/types/vue' {
@@ -48,7 +58,13 @@ const plugin: Plugin = (_, inject) => {
     bbox: new BoundingBoxApplicationService(repositories.boundingBox),
     segmentation: new SegmentationApplicationService(repositories.segmentation),
     user: new UserApplicationService(repositories.user),
-    group: new GroupApplicationService(repositories.group)
+    perspective: new PerspectiveApplicationService(repositories.perspective),
+    group: new GroupApplicationService(repositories.group),
+    optionsGroup: new OptionsGroupApplicationService(repositories.optionsGroup),
+    optionsQuestion: new OptionsQuestionApplicationService(repositories.optionsQuestion),
+    questionType: new QuestionTypeApplicationService(repositories.questionType),
+    question: new QuestionApplicationService(repositories.question),
+    answer: new AnswerApplicationService(repositories.answer)
   }
   inject('services', services)
 }

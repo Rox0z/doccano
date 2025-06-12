@@ -14,12 +14,21 @@ from .models import (
     Speech2textProject,
     Tag,
     TextClassificationProject,
+    Answer,
+    OptionQuestion,
+    OptionsGroup,
+    Perspective,
+    Question,
+    QuestionType,
 )
 
 
 class MemberSerializer(serializers.ModelSerializer):
     username = serializers.SerializerMethodField()
     rolename = serializers.SerializerMethodField()
+    perspective_id = serializers.PrimaryKeyRelatedField(
+        source="perspective", required=False, queryset=Perspective.objects.all(), allow_null=True
+    )
 
     @classmethod
     def get_username(cls, instance):
@@ -33,7 +42,7 @@ class MemberSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Member
-        fields = ("id", "user", "role", "username", "rolename")
+        fields = ("id", "user", "role", "username", "rolename", "perspective_id")
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -47,9 +56,123 @@ class TagSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "project")
 
 
+class QuestionTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QuestionType
+        fields = ["id", "question_type"]
+
+
+class OptionQuestionSerializer(serializers.ModelSerializer):
+    options_group = serializers.PrimaryKeyRelatedField(queryset=OptionsGroup.objects.all(), required=False)
+
+    class Meta:
+        model = OptionQuestion
+        fields = ["id", "option", "options_group"]
+
+
+class OptionsGroupSerializer(serializers.ModelSerializer):
+    options_questions = OptionQuestionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = OptionsGroup
+        fields = ["id", "name", "options_questions"]
+
+
+class SimpleMemberSerializer(serializers.ModelSerializer):
+    username = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Member
+        fields = ("id", "username")
+
+    @classmethod
+    def get_username(cls, instance):
+        user = instance.user
+        return user.username if user else None
+
+
+class AnswerSerializer(serializers.ModelSerializer):
+    member = serializers.PrimaryKeyRelatedField(queryset=Member.objects.all())
+    question = serializers.PrimaryKeyRelatedField(queryset=Question.objects.all())
+    answer_option = serializers.PrimaryKeyRelatedField(queryset=OptionQuestion.objects.all(), required=False)
+    answer_text = serializers.CharField(required=False)
+
+    class Meta:
+        model = Answer
+        fields = ("id", "member", "question", "answer_text", "answer_option")
+
+    def validate(self, attrs):
+        answer_text = attrs.get("answer_text", None)
+        answer_option = attrs.get("answer_option", None)
+
+        if answer_text and answer_option:
+            raise serializers.ValidationError(
+                "You can only provide one of the fields: 'answer_text' or 'answer_option', but not both."
+            )
+
+        if not answer_text and not answer_option:
+            raise serializers.ValidationError(
+                "You must provide at least one of the fields: 'answer_text' or 'answer_option'."
+            )
+
+        return attrs
+
+
+class QuestionSerializer(serializers.ModelSerializer):
+    answers = AnswerSerializer(many=True, read_only=True)
+    perspective = serializers.PrimaryKeyRelatedField(
+        queryset=Perspective.objects.all(), required=False
+    )
+    type = serializers.PrimaryKeyRelatedField(queryset=QuestionType.objects.all())
+    options_group = serializers.PrimaryKeyRelatedField(queryset=OptionsGroup.objects.all(), required=False)
+
+    class Meta:
+        model = Question
+        fields = ("id", "question", "perspective", "answers", "type", "options_group")
+
+
+class PerspectiveSerializer(serializers.ModelSerializer):
+    members = serializers.PrimaryKeyRelatedField(queryset=Member.objects.filter(role__name="annotator"), many=True)
+    project_id = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.all(),
+        source="project",
+    )
+    questions = QuestionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Perspective
+        fields = ("id", "project_id", "created_at", "members", "questions")
+        read_only_fields = ("created_at",)
+
+
+class AnswerNestedSerializer(serializers.ModelSerializer):
+    member = SimpleMemberSerializer(read_only=True)
+
+    class Meta:
+        model = Answer
+        fields = ("id", "answer_text", "member")
+
+
+class QuestionNestedSerializer(serializers.ModelSerializer):
+    answers = AnswerNestedSerializer(many=True, read_only=True, source="answers")
+
+    class Meta:
+        model = Question
+        fields = ("id", "question", "answers")
+
+
+class PerspectiveNestedSerializer(serializers.ModelSerializer):
+    questions = QuestionNestedSerializer(many=True, read_only=True, source="questions")
+
+    class Meta:
+        model = Perspective
+        fields = ("id", "created_at", "questions")
+
+
 class ProjectSerializer(serializers.ModelSerializer):
     tags = TagSerializer(many=True, required=False)
     author = serializers.SerializerMethodField()
+    perspectives = PerspectiveNestedSerializer(many=True, read_only=True)
 
     @classmethod
     def get_author(cls, instance):
@@ -74,6 +197,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             "allow_member_to_create_label_type",
             "is_text_project",
             "tags",
+            "perspectives",
         ]
         read_only_fields = (
             "created_at",
@@ -146,3 +270,16 @@ class ProjectPolymorphicSerializer(PolymorphicSerializer):
         Project: ProjectSerializer,
         **{cls.Meta.model: cls for cls in ProjectSerializer.__subclasses__()},
     }
+
+
+class PerspectiveListSerializer(serializers.ModelSerializer):
+    project_id = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.all(),
+        source="project"
+    )
+    project_name = serializers.CharField(source="project.name", read_only=True)
+    creator_name = serializers.CharField(source="created_by.username", read_only=True)
+
+    class Meta:
+        model = Perspective
+        fields = ("id", "project_id", "project_name", "creator_name", "created_at")

@@ -42,6 +42,22 @@
     <template #[`item.tags`]="{ item }">
       <v-chip v-for="tag in item.tags" :key="tag.id" outlined v-text="tag.text" />
     </template>
+    <template #[`item.question`]="{ item }">
+      <div v-for="perspective in item.perspectives" :key="perspective.id">
+        <div v-for="question in perspective.questions" :key="question.id">
+          {{ question.question }}
+        </div>
+      </div>
+    </template>
+    <template #[`item.answer`]="{ item }">
+      <div v-for="perspective in item.perspectives" :key="perspective.id">
+        <div v-for="question in perspective.questions" :key="question.id">
+          <div v-for="answer in question.answers" :key="answer.id">
+            {{ answer.answer_text }} (by {{ answer.member ? answer.member.username : 'Unknown' }})
+          </div>
+        </div>
+      </div>
+    </template>
   </v-data-table>
 </template>
 
@@ -96,7 +112,9 @@ export default Vue.extend({
         { text: this.$t('generic.type'), value: 'projectType' },
         { text: 'Created', value: 'createdAt' },
         { text: 'Author', value: 'author' },
-        { text: 'Tags', value: 'tags', sortable: false }
+        { text: 'Tags', value: 'tags', sortable: false },
+        { text: 'Question', value: 'question', sortable: false },
+        { text: 'Answer', value: 'answer', sortable: false }
       ]
     }
   },

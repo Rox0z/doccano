@@ -10,6 +10,33 @@ export const BoundingBox = 'BoundingBox'
 export const Segmentation = 'Segmentation'
 export const Speech2text = 'Speech2text'
 
+export interface SimpleMember { id: number; username: string | null; }
+
+export interface AnswerItem {
+  id: number;
+  member: SimpleMember | null;
+  question: number;
+  answer_text: string | null;
+  answer_option: number | null;
+}
+
+export interface QuestionItem {
+  id: number;
+  question: string;
+  perspective: number;
+  answers: AnswerItem[];
+  type: number;
+  options_group: number | null;
+}
+
+export interface PerspectiveItem {
+  id: number;
+  project_id: number;
+  created_at: string;
+  members: number[];
+  questions: QuestionItem[];
+}
+
 export const allProjectTypes = <const>[
   DocumentClassification,
   SequenceLabeling,
@@ -73,7 +100,8 @@ export class Project {
     readonly createdAt: string = '',
     readonly updatedAt: string = '',
     readonly author: string = '',
-    readonly isTextProject: boolean = false
+    readonly isTextProject: boolean = false,
+    readonly perspectives: PerspectiveItem[] = []
   ) {
     if (!validateMinLength(_name)) {
       throw new Error('Project name is required')
