@@ -24,32 +24,6 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-:: Check for Python 3.10 specifically
-set PYTHON_CMD=
-where python3.10 >nul 2>&1
-if %ERRORLEVEL% equ 0 (
-    set PYTHON_CMD=python3.10
-) else (
-    where python >nul 2>&1
-    if %ERRORLEVEL% equ 0 (
-        for /f "tokens=*" %%i in ('python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"') do (
-            set PY_VERSION=%%i
-            if "!PY_VERSION!" == "3.10" (
-                set PYTHON_CMD=python
-            )
-        )
-    )
-)
-
-if "%PYTHON_CMD%" == "" (
-    echo Error: Python 3.10 is not installed or not in PATH
-    echo Please install Python 3.10: https://www.python.org/downloads/
-    exit /b 1
-)
-
-for /f "tokens=*" %%i in ('where %PYTHON_CMD%') do set PYTHON_PATH=%%i
-echo Found Python 3.10: %PYTHON_PATH%
-
 where poetry >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     echo Error: Poetry is not installed or not in PATH
@@ -63,6 +37,41 @@ if %ERRORLEVEL% neq 0 (
     echo Please install Yarn: https://yarnpkg.com/getting-started/install
     exit /b 1
 )
+
+:: Check Python version
+echo Checking Python version...
+where python >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo Error: Python is not installed or not in PATH
+    echo Please install Python 3.9 or higher: https://www.python.org/downloads/
+    exit /b 1
+)
+
+for /f "tokens=2 delims= " %%i in ('python --version') do set PYTHON_VERSION=%%i
+echo Found Python version: %PYTHON_VERSION%
+
+for /f "tokens=1,2 delims=." %%a in ("%PYTHON_VERSION%") do (
+    set PYTHON_MAJOR=%%a
+    set PYTHON_MINOR=%%b
+)
+
+if %PYTHON_MAJOR% LSS 3 (
+    echo Error: Python version 3.9 or higher is required.
+    echo Current version: %PYTHON_VERSION%
+    exit /b 1
+)
+
+if %PYTHON_MAJOR% EQU 3 (
+    if %PYTHON_MINOR% LSS 9 (
+        echo Error: Python version 3.9 or higher is required.
+        echo Current version: %PYTHON_VERSION%
+        exit /b 1
+    )
+)
+
+set PYTHON_PATH=python
+echo Python check passed. Using: %PYTHON_PATH%
+echo.
 
 :: Set up backend
 echo Setting up backend...
@@ -80,7 +89,7 @@ if exist pyproject.toml (
     findstr /C:"python = \"^3.8\"" pyproject.toml >nul
     if %ERRORLEVEL% equ 0 (
         echo Updating Python version constraint from 3.8 to 3.9...
-        powershell -Command "(Get-Content pyproject.toml) -replace 'python = \"\^3.8\"', 'python = \"^3.9\"' | Set-Content pyproject.toml"
+        powershell -Command "(Get-Content pyproject.toml) -replace 'python = \"\\^3.8\"', 'python = \"\\^3.9\"' | Set-Content pyproject.toml"
     )
     findstr /C:"python = \">=3.8,<4.0\"" pyproject.toml >nul
     if %ERRORLEVEL% equ 0 (
