@@ -42,6 +42,18 @@ class UserDetailSerializer(serializers.ModelSerializer):
             }
         return groups_dict
 
+    def validate_email(self, value):
+        # Check if email already exists (excluding current user for updates)
+        if self.instance:
+            # This is an update operation
+            if User.objects.filter(email=value).exclude(id=self.instance.id).exists():
+                raise serializers.ValidationError("User with this email already exists.")
+        else:
+            # This is a create operation
+            if User.objects.filter(email=value).exists():
+                raise serializers.ValidationError("User with this email already exists.")
+        return value
+
 
 class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=True)

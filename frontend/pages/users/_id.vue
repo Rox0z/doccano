@@ -45,10 +45,38 @@
 
         <v-divider class="mb-5" />
 
-        <v-form v-if="user" ref="form" @submit.prevent="updateUser">
+        <v-form v-if="user" ref="form" v-model="valid" @submit.prevent="updateUser">
           <h2 class="mb-5">Edit User:</h2>
 
-          <v-text-field v-model="editedUser.username" label="Username" required />
+          <v-text-field 
+            v-model="editedUser.username" 
+            label="Username" 
+            :rules="usernameRules"
+            required 
+          />
+          
+          <v-text-field 
+            v-model="editedUser.firstName" 
+            label="Nome" 
+            :rules="nameRules"
+            required 
+          />
+          
+          <v-text-field 
+            v-model="editedUser.lastName" 
+            label="Apelido" 
+            :rules="nameRules"
+            required 
+          />
+          
+          <v-text-field 
+            v-model="editedUser.email" 
+            label="Email" 
+            type="email"
+            :rules="emailValidationRules"
+            required 
+          />
+          
           <v-switch v-model="editedUser.isStaff" color="amber" label="Staff" />
           <v-switch v-model="editedUser.isSuperUser" color="orange" label="Administrator" />
           
@@ -111,7 +139,13 @@
           <v-card-actions>
             <v-btn color="error" @click="handleSingleDelete" :disabled="loading">Delete User</v-btn>
             <v-spacer />
-            <v-btn color="primary" class="mr-4" type="submit" :loading="loading" :disabled="loading">
+            <v-btn 
+              color="primary" 
+              class="mr-4" 
+              type="submit" 
+              :loading="loading" 
+              :disabled="loading || !valid"
+            >
               Update Profile
             </v-btn>
           </v-card-actions>
@@ -156,6 +190,7 @@ import { APIUserRepository } from '@/repositories/user/apiUserRepository'
 import { APIGroupRepository } from '@/repositories/group/apiGroupRepository'
 import { UserDetails } from '@/domain/models/user/user'
 import { Group } from '@/domain/models/group/group'
+import { userNameRules, emailRules } from '@/rules'
 
 export default Vue.extend({
   components: {
@@ -167,6 +202,9 @@ export default Vue.extend({
       user: null as UserDetails | null,
       editedUser: {
         username: '',
+        firstName: '',
+        lastName: '',
+        email: '',
         isStaff: false,
         isSuperUser: false,
         groups: [] as number[],
@@ -182,9 +220,33 @@ export default Vue.extend({
       errorDialogMessage: '',
       errorMessage: '',
       successMessage: '',
+              valid: true,
       icons: {
         mdiArrowLeft
       }
+    }
+  },
+
+  computed: {
+    usernameRules() {
+      return userNameRules({
+        userNameRequired: 'Username é obrigatório',
+        userNameLessThan30Chars: 'Username deve ter menos de 30 caracteres',
+        minLength: 'Username deve ter pelo menos 3 caracteres'
+      })
+    },
+    nameRules() {
+      return [
+        (v: string) => !!v || 'Nome é obrigatório',
+        (v: string) => (v && v.length >= 2) || 'Nome deve ter pelo menos 2 caracteres',
+        (v: string) => (v && v.length <= 150) || 'Nome deve ter menos de 150 caracteres'
+      ]
+    },
+    emailValidationRules() {
+      return emailRules({
+        required: 'Email é obrigatório',
+        format: 'Email deve ser válido'
+      })
     }
   },
 
@@ -203,6 +265,9 @@ export default Vue.extend({
         // Save the user data to editedUser
         this.editedUser = {
           username: this.user.username,
+          firstName: this.user.firstName,
+          lastName: this.user.lastName,
+          email: this.user.email,
           isStaff: this.user.isStaff,
           isSuperUser: this.user.isSuperUser,
           groups: this.user.groups || [],
@@ -266,6 +331,9 @@ export default Vue.extend({
         const userService = new UserApplicationService(new APIUserRepository())
         await userService.updateUser(id, {
           username: this.editedUser.username,
+          first_name: this.editedUser.firstName,
+          last_name: this.editedUser.lastName,
+          email: this.editedUser.email,
           is_staff: this.editedUser.isStaff,
           is_superuser: this.editedUser.isSuperUser,
           groups: this.editedUser.groups // Using the array of IDs
