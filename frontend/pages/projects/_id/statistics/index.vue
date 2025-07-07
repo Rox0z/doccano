@@ -10,11 +10,20 @@
             <v-spacer />
             <v-btn
               color="primary"
+              class="mr-2"
               :loading="exporting"
-              @click.prevent="exportStatistics"
+              @click.stop.prevent="exportToPDF"
             >
-              <v-icon left>{{ mdiDownload }}</v-icon>
+              <v-icon left>{{ mdiFileDocumentOutline }}</v-icon>
               Export PDF
+            </v-btn>
+            <v-btn
+              color="success"
+              :loading="exporting"
+              @click.stop.prevent="exportToCSV"
+            >
+              <v-icon left>{{ mdiFileDelimited }}</v-icon>
+              Export CSV
             </v-btn>
           </v-card-title>
         </v-card>
@@ -63,9 +72,31 @@
                   item-value="id"
                   label="Filter by User"
                   prepend-icon="mdi-account"
+                  multiple
+                  chips
                   clearable
                   @change="applyFilters"
-                />
+                >
+                  <template #selection="{ item, index }">
+                    <v-chip
+                      v-if="index < 2"
+                      :key="item.id"
+                      color="secondary"
+                      text-color="white"
+                      small
+                      close
+                      @click:close="removeUserFilter(item)"
+                    >
+                      {{ item.username }}
+                    </v-chip>
+                    <span
+                      v-if="index === 2"
+                      class="text-grey text-caption"
+                    >
+                      (+{{ filters.userFilter.length - 2 }} others)
+                    </span>
+                  </template>
+                </v-select>
               </v-col>
             </v-row>
 
@@ -92,11 +123,27 @@
                   label="Filter by Perspective"
                   prepend-icon="mdi-eye"
                   clearable
+                  @change="onPerspectiveFilterChange"
+                />
+              </v-col>
+
+              <!-- Answer Filter (only show when perspective is selected) -->
+              <v-col v-if="filters.perspectiveFilter" cols="12" md="4">
+                <v-select
+                  v-model="filters.answerFilter"
+                  :items="availableAnswers"
+                  item-text="text"
+                  item-value="value"
+                  label="Filter by Answer"
+                  prepend-icon="mdi-comment-text"
+                  clearable
+                  :loading="loadingAnswers"
                   @change="applyFilters"
                 />
               </v-col>
 
               <!-- Active Filters Display -->
+              <v-col v-else cols="12" md="4"></v-col>
               <v-col cols="12" md="4">
                 <div v-if="hasActiveFilters" class="d-flex flex-wrap">
                   <v-chip
@@ -119,16 +166,19 @@
                     <v-icon left small>mdi-alert-circle</v-icon>
                     {{ filters.discrepancyFilter }}
                   </v-chip>
-                  <v-chip
-                    v-if="filters.userFilter"
-                    color="secondary"
-                    class="mr-2 mb-2"
-                    close
-                    @click:close="clearFilter('userFilter')"
-                  >
-                    <v-icon left small>mdi-account</v-icon>
-                    {{ getUsernameById(filters.userFilter) }}
-                  </v-chip>
+                  <template v-if="filters.userFilter && filters.userFilter.length > 0">
+                    <v-chip
+                      v-for="userId in filters.userFilter"
+                      :key="userId"
+                      color="secondary"
+                      class="mr-2 mb-2"
+                      close
+                      @click:close="removeUserFilter(userId)"
+                    >
+                      <v-icon left small>mdi-account</v-icon>
+                      {{ getUsernameById(userId) }}
+                    </v-chip>
+                  </template>
                   <v-chip
                     v-if="filters.labelFilter"
                     color="success"
@@ -144,10 +194,20 @@
                     color="info"
                     class="mr-2 mb-2"
                     close
-                    @click:close="clearFilter('perspectiveFilter')"
+                    @click:close="clearPerspectiveFilter"
                   >
                     <v-icon left small>mdi-eye</v-icon>
                     {{ getPerspectiveNameById(filters.perspectiveFilter) }}
+                  </v-chip>
+                  <v-chip
+                    v-if="filters.answerFilter"
+                    color="purple"
+                    class="mr-2 mb-2"
+                    close
+                    @click:close="clearFilter('answerFilter')"
+                  >
+                    <v-icon left small>mdi-comment-text</v-icon>
+                    Answer: {{ filters.answerFilter.substring(0, 20) }}{{ filters.answerFilter.length > 20 ? '...' : '' }}
                   </v-chip>
                 </div>
               </v-col>
@@ -155,13 +215,13 @@
           </v-card-text>
         </v-card>
 
-        <!-- Statistics Overview Cards (only when filters are active) -->
-        <v-row v-if="hasActiveFilters" class="mb-4">
+        <!-- Statistics Overview Cards (only when filters other than text/discrepancy alone are active) -->
+        <v-row v-if="showOverviewCards" class="mb-4">
           <v-col cols="12" md="3">
             <v-card class="text-center" color="primary" dark>
               <v-card-text>
                 <v-icon size="48" class="mb-2">mdi-file-document-multiple</v-icon>
-                <div class="text-h3 font-weight-bold">{{ stats.totalExamples || 0 }}</div>
+                <div class="text-h3 font-weight-bold">{{ filteredStats.totalExamples || 0 }}</div>
                 <div class="text-subtitle-1">Total Examples</div>
               </v-card-text>
             </v-card>
@@ -170,7 +230,7 @@
             <v-card class="text-center" color="success" dark>
               <v-card-text>
                 <v-icon size="48" class="mb-2">mdi-tag-multiple</v-icon>
-                <div class="text-h3 font-weight-bold">{{ stats.totalLabels || 0 }}</div>
+                <div class="text-h3 font-weight-bold">{{ filteredStats.totalLabels || 0 }}</div>
                 <div class="text-subtitle-1">Total Labels</div>
               </v-card-text>
             </v-card>
@@ -179,7 +239,7 @@
             <v-card class="text-center" color="info" dark>
               <v-card-text>
                 <v-icon size="48" class="mb-2">mdi-account-group</v-icon>
-                <div class="text-h3 font-weight-bold">{{ stats.totalUsers || 0 }}</div>
+                <div class="text-h3 font-weight-bold">{{ filteredStats.totalUsers || 0 }}</div>
                 <div class="text-subtitle-1">Active Users</div>
               </v-card-text>
             </v-card>
@@ -188,28 +248,28 @@
             <v-card class="text-center" color="warning" dark>
               <v-card-text>
                 <v-icon size="48" class="mb-2">mdi-alert-circle</v-icon>
-                <div class="text-h3 font-weight-bold">{{ stats.discrepancyRate || 0 }}%</div>
+                <div class="text-h3 font-weight-bold">{{ filteredStats.discrepancyRate || 0 }}%</div>
                 <div class="text-subtitle-1">Discrepancy Rate</div>
               </v-card-text>
             </v-card>
           </v-col>
         </v-row>
 
-        <!-- Dataset Details Table (always shown but with different titles) -->
-        <div class="mb-6">
+        <!-- Dataset Details Table -->
+        <div v-if="shouldShowDatasetDetails" class="mb-6">
           <v-card>
             <v-card-title>
               <v-icon left color="primary">mdi-table</v-icon>
-              <h3>{{ hasActiveFilters ? 'Filtered Dataset Details' : 'Dataset Details' }}</h3>
+              <h3>{{ getDatasetDetailsTitle() }}</h3>
               <v-spacer />
               <v-chip color="info" text-color="white">
-                {{ datasetDetails.length }} examples
+                {{ filteredDatasetDetails.length }} examples
               </v-chip>
             </v-card-title>
             <v-card-text>
               <v-data-table
                 :headers="datasetDetailsHeaders"
-                :items="datasetDetails"
+                :items="filteredDatasetDetails"
                 :items-per-page="10"
                 :loading="loading"
                 class="elevation-0"
@@ -308,21 +368,21 @@
           </v-card>
         </div>
 
-        <!-- User Details Table (always shown but with different titles) -->
-        <div class="mb-6">
+        <!-- User Details Table -->
+        <div v-if="shouldShowUserDetails" class="mb-6">
           <v-card>
             <v-card-title>
               <v-icon left color="secondary">mdi-account-group</v-icon>
-              <h3>{{ hasActiveFilters ? 'Filtered User Details' : 'User Details' }}</h3>
+              <h3>{{ getUserDetailsTitle() }}</h3>
               <v-spacer />
               <v-chip color="secondary" text-color="white">
-                {{ userDetails.length }} users
+                {{ hasUserFilter || hasPerspectiveAnswerFilter ? filteredUserDetails.length : userDetails.length }} users
               </v-chip>
             </v-card-title>
             <v-card-text>
               <v-data-table
                 :headers="userDetailsHeaders"
-                :items="userDetails"
+                :items="hasUserFilter ? filteredUserDetails : userDetails"
                 :items-per-page="10"
                 :loading="loading"
                 class="elevation-0"
@@ -384,21 +444,21 @@
           </v-card>
         </div>
 
-        <!-- Perspective Details Table (always shown but with different titles) -->
-        <div class="mb-6">
+        <!-- Perspective Details Table -->
+        <div v-if="shouldShowPerspectiveDetails" class="mb-6">
           <v-card>
             <v-card-title>
               <v-icon left color="info">mdi-eye-outline</v-icon>
               <h3>{{ hasActiveFilters ? 'Filtered Perspective Details' : 'Perspective Details' }}</h3>
               <v-spacer />
               <v-chip color="info" text-color="white">
-                {{ perspectiveDetails.length }} questions
+                {{ (hasUserFilter || hasPerspectiveFilter) ? filteredPerspectiveDetails.length : perspectiveDetails.length }} questions
               </v-chip>
             </v-card-title>
             <v-card-text>
               <v-data-table
                 :headers="perspectiveDetailsHeaders"
-                :items="perspectiveDetails"
+                :items="(hasUserFilter || hasPerspectiveFilter) ? filteredPerspectiveDetails : perspectiveDetails"
                 :items-per-page="10"
                 :loading="loading"
                 class="elevation-0"
@@ -622,7 +682,12 @@
           <v-card>
             <v-card-title class="headline">
               <v-icon left color="info">mdi-eye-outline</v-icon>
-              Perspective Answers
+              <div>
+                <span>Perspective Answers</span>
+                <div v-if="filters.answerFilter" class="text-subtitle-2 text--secondary">
+                  Filtered by answer: "{{ filters.answerFilter.length > 30 ? filters.answerFilter.substring(0, 30) + '...' : filters.answerFilter }}"
+                </div>
+              </div>
             </v-card-title>
             <v-card-text>
               <div v-if="selectedPerspective">
@@ -640,14 +705,23 @@
                       <span class="text-h6">{{ selectedPerspective.question }}</span>
                     </div>
                     <div class="text-body-2 text--secondary">
-                      {{ selectedPerspective.answers }} answers • {{ Math.round(selectedPerspective.responseRate) }}% response rate
+                      <span v-if="filters.answerFilter || (filters.userFilter && filters.userFilter.length > 0)">
+                        Showing {{ perspectiveAnswersList.length }} of {{ selectedPerspective.answers }} answers 
+                      </span>
+                      <span v-else>
+                        {{ selectedPerspective.answers }} answers 
+                      </span>
+                      • {{ Math.round(selectedPerspective.responseRate) }}% response rate
                     </div>
                   </v-card-text>
                 </v-card>
 
                 <!-- Answers List -->
                 <div v-if="perspectiveAnswersList && perspectiveAnswersList.length > 0">
-                  <h4 class="mb-3">Responses:</h4>
+                  <h4 class="mb-3">
+                    <span v-if="filters.answerFilter">Filtered Responses:</span>
+                    <span v-else>Responses:</span>
+                  </h4>
                   <v-card
                     v-for="(answer, index) in perspectiveAnswersList"
                     :key="index"
@@ -700,8 +774,8 @@
           </v-card>
         </v-dialog>
 
-        <!-- Main Statistics Content (only when filters are active) -->
-        <div v-if="hasActiveFilters">
+        <!-- Main Statistics Content (only when filters other than text/discrepancy alone are active) -->
+        <div v-if="showDetailedStats">
           <v-tabs v-model="activeTab" background-color="transparent" color="primary">
             <!-- Label Statistics Tab -->
             <v-tab>
@@ -992,7 +1066,7 @@
 
 <script>
 import { mapGetters } from 'vuex'
-import { mdiChartBar, mdiDownload, mdiFilter } from '@mdi/js'
+import { mdiChartBar, mdiDownload, mdiFilter, mdiFileDocumentOutline, mdiFileDelimited } from '@mdi/js'
 
 export default {
   layout: 'project',
@@ -1007,6 +1081,8 @@ export default {
       mdiChartBar,
       mdiDownload,
       mdiFilter,
+      mdiFileDocumentOutline,
+      mdiFileDelimited,
       
       // Navigation
       activeTab: 0,
@@ -1017,9 +1093,10 @@ export default {
       filters: {
         textFilter: '',
         discrepancyFilter: null,
-        userFilter: null,
+        userFilter: [],
         labelFilter: null,
-        perspectiveFilter: null
+        perspectiveFilter: null,
+        answerFilter: null
       },
 
       discrepancyOptions: [
@@ -1033,7 +1110,9 @@ export default {
       availableUsers: [],
       availableLabels: [],
       availablePerspectives: [],
+      availableAnswers: [],
       availableTexts: [],
+      loadingAnswers: false,
       datasetDetails: [],
       userDetails: [],
       perspectiveDetails: [],
@@ -1112,9 +1191,170 @@ export default {
     hasActiveFilters() {
       return this.filters.textFilter || 
              this.filters.discrepancyFilter || 
-             this.filters.userFilter || 
+             (this.filters.userFilter && this.filters.userFilter.length > 0) || 
              this.filters.labelFilter || 
-             this.filters.perspectiveFilter
+             this.filters.perspectiveFilter ||
+             this.filters.answerFilter
+    },
+
+    // Check which types of filters are active
+    hasTextOrDiscrepancyFilter() {
+      return this.filters.textFilter || this.filters.discrepancyFilter
+    },
+
+    hasLabelFilter() {
+      return this.filters.labelFilter
+    },
+
+    hasUserFilter() {
+      return this.filters.userFilter && this.filters.userFilter.length > 0
+    },
+
+    hasPerspectiveFilter() {
+      return this.filters.perspectiveFilter
+    },
+
+    hasAnswerFilter() {
+      return this.filters.answerFilter
+    },
+
+    hasPerspectiveAnswerFilter() {
+      return this.filters.perspectiveFilter && this.filters.answerFilter
+    },
+
+    // Determine which tables should be shown based on active filter types
+    shouldShowDatasetDetails() {
+      // Show when no filters are active OR when specific filters are active
+      // When perspective + answer filter is active, show filtered dataset details
+      return !this.hasActiveFilters || this.hasTextOrDiscrepancyFilter || this.hasLabelFilter || this.hasUserFilter || this.hasPerspectiveAnswerFilter
+    },
+
+    shouldShowUserDetails() {
+      // Show when no filters are active OR when user filter is active OR when perspective + answer filter is active
+      return !this.hasActiveFilters || this.hasUserFilter || this.hasPerspectiveAnswerFilter
+    },
+
+    shouldShowPerspectiveDetails() {
+      // Show when no filters are active OR when perspective/user filter is active
+      return !this.hasActiveFilters || this.hasPerspectiveFilter || this.hasUserFilter
+    },
+
+    // Show overview cards never (always hidden)
+    showOverviewCards() {
+      // Always hide overview cards
+      return false
+    },
+
+    // Show detailed statistics tabs never (always hidden)
+    showDetailedStats() {
+      // Always hide detailed stats
+      return false
+    },
+
+    // Check if only simple filters (text, discrepancy, label, or perspective) are active
+    isSimpleFilter() {
+      return (this.filters.textFilter && 
+             !this.filters.discrepancyFilter && 
+             (!this.filters.userFilter || this.filters.userFilter.length === 0) && 
+             !this.filters.labelFilter && 
+             !this.filters.perspectiveFilter) ||
+             (this.filters.discrepancyFilter && 
+             !this.filters.textFilter && 
+             (!this.filters.userFilter || this.filters.userFilter.length === 0) && 
+             !this.filters.labelFilter && 
+             !this.filters.perspectiveFilter) ||
+             (this.filters.labelFilter && 
+             !this.filters.textFilter && 
+             !this.filters.discrepancyFilter && 
+             (!this.filters.userFilter || this.filters.userFilter.length === 0) && 
+             !this.filters.perspectiveFilter) ||
+             (this.filters.perspectiveFilter && 
+             !this.filters.textFilter && 
+             !this.filters.discrepancyFilter && 
+             (!this.filters.userFilter || this.filters.userFilter.length === 0) && 
+             !this.filters.labelFilter)
+    },
+
+    // Check if only user filter is active
+    isUserFilterOnly() {
+      return this.filters.userFilter && 
+             this.filters.userFilter.length > 0 && 
+             !this.filters.textFilter && 
+             !this.filters.discrepancyFilter && 
+             !this.filters.labelFilter && 
+             !this.filters.perspectiveFilter
+    },
+
+    // Check if only perspective filter is active
+    isPerspectiveFilterOnly() {
+      return this.filters.perspectiveFilter && 
+             !this.filters.textFilter && 
+             !this.filters.discrepancyFilter && 
+             (!this.filters.userFilter || this.filters.userFilter.length === 0) && 
+             !this.filters.labelFilter
+    },
+
+    // Filter user details to show only selected users
+    filteredUserDetails() {
+      if (!this.hasUserFilter) {
+        return this.userDetails
+      }
+      // When user filter is active, only show the selected users
+      return this.userDetails.filter(user => {
+        const userId = this.availableUsers.find(u => u.username === user.username)?.id
+        return userId && this.filters.userFilter.includes(userId)
+      })
+    },
+
+    // Filter perspective details to show only questions answered by selected users or specific perspective
+    filteredPerspectiveDetails() {
+      let filtered = this.perspectiveDetails
+      
+      // Apply perspective filter if active
+      if (this.hasPerspectiveFilter) {
+        filtered = filtered.filter(detail => detail.id === parseInt(this.filters.perspectiveFilter))
+      }
+      
+      // Note: User filter is already applied on the backend - it only returns questions that the user answered
+      // No additional filtering needed here for user filter
+      
+      return filtered
+    },
+
+    // Filter dataset details to show only examples where selected users participated
+    filteredDatasetDetails() {
+      if (!this.filters.userFilter || this.filters.userFilter.length === 0) {
+        return this.datasetDetails
+      }
+      
+      // When user filter is active, show only examples where selected users participated
+      return this.datasetDetails.filter(detail => {
+        // Check if any of the selected users participated in annotations
+        const selectedUsernames = this.filters.userFilter.map(userId => {
+          const user = this.availableUsers.find(u => u.id === parseInt(userId))
+          return user ? user.username : null
+        }).filter(Boolean)
+        
+        // Check if any selected user is in the annotating users list
+        return detail.annotating_users && detail.annotating_users.some(username => 
+          selectedUsernames.includes(username)
+        )
+      })
+    },
+
+    // Computed statistics based on filtered data
+    filteredStats() {
+      if (!this.filters.userFilter || this.filters.userFilter.length === 0) {
+        return this.stats
+      }
+      
+      // When user filter is active, calculate stats based on filtered data
+      const filteredExamples = this.filteredDatasetDetails.length
+      
+      return {
+        ...this.stats,
+        totalExamples: filteredExamples
+      }
     }
   },
 
@@ -1133,7 +1373,11 @@ export default {
         await this.loadStatistics()
       } catch (error) {
         console.error('Error loading initial data:', error)
-        this.$toast.error('Failed to load statistics data')
+        if (this.$toast && typeof this.$toast.error === 'function') {
+          this.$toast.error('Failed to load statistics data')
+        } else {
+          console.error('❌ Failed to load statistics data')
+        }
       } finally {
         this.loading = false
       }
@@ -1163,14 +1407,8 @@ export default {
         // Build filter parameters
         const params = this.buildFilterParams()
 
-        // Load dataset details when no filters are active
-        let datasetDetailsResponse = null
-        if (!this.hasActiveFilters) {
-          datasetDetailsResponse = await this.$repositories.metrics.fetchDatasetDetails(this.projectId)
-        } else {
-          // When filters are active, load filtered dataset details
-          datasetDetailsResponse = await this.$repositories.metrics.fetchDatasetDetails(this.projectId, params)
-        }
+        // Always load dataset details with params to ensure perspective filtering works correctly
+        const datasetDetailsResponse = await this.$repositories.metrics.fetchDatasetDetails(this.projectId, params)
 
         // Load all statistics data with filters applied
         const [labelStats, perspectiveStats, discrepancyStats] = await Promise.all([
@@ -1204,7 +1442,8 @@ export default {
       if (this.filters.textFilter) {
         params.text = this.filters.textFilter
       }
-      if (this.filters.userFilter) {
+      if (this.filters.userFilter && this.filters.userFilter.length > 0) {
+        // For multiple users, pass as separate user_id parameters
         params.user_id = this.filters.userFilter
       }
       if (this.filters.labelFilter) {
@@ -1212,6 +1451,9 @@ export default {
       }
       if (this.filters.perspectiveFilter) {
         params.question_id = this.filters.perspectiveFilter
+      }
+      if (this.filters.answerFilter) {
+        params.answer = this.filters.answerFilter
       }
       if (this.filters.discrepancyFilter && this.filters.discrepancyFilter !== 'all') {
         params.discrepancy = this.filters.discrepancyFilter
@@ -1271,8 +1513,78 @@ export default {
     },
 
     clearFilter(filterName) {
-      this.filters[filterName] = null
+      if (filterName === 'userFilter') {
+        this.filters[filterName] = []
+      } else {
+        this.filters[filterName] = null
+      }
       this.applyFilters()
+    },
+
+    clearPerspectiveFilter() {
+      this.filters.perspectiveFilter = null
+      this.filters.answerFilter = null
+      this.availableAnswers = []
+      this.applyFilters()
+    },
+
+    async onPerspectiveFilterChange() {
+      // Clear answer filter when perspective changes
+      this.filters.answerFilter = null
+      this.availableAnswers = []
+      
+      if (this.filters.perspectiveFilter) {
+        // Load available answers for the selected perspective
+        await this.loadAvailableAnswers()
+      }
+      
+      // Apply filters
+      this.applyFilters()
+    },
+
+    async loadAvailableAnswers() {
+      if (!this.filters.perspectiveFilter) {
+        return
+      }
+      
+      this.loadingAnswers = true
+      try {
+        const response = await this.$repositories.metrics.fetchAvailableAnswers(
+          this.projectId, 
+          this.filters.perspectiveFilter
+        )
+        this.availableAnswers = response.available_answers || []
+      } catch (error) {
+        console.error('Error loading available answers:', error)
+        this.availableAnswers = []
+      } finally {
+        this.loadingAnswers = false
+      }
+    },
+
+    removeUserFilter(userId) {
+      if (typeof userId === 'object' && userId.id) {
+        // Handle case where full user object is passed
+        userId = userId.id
+      }
+      const index = this.filters.userFilter.indexOf(userId)
+      if (index > -1) {
+        this.filters.userFilter.splice(index, 1)
+        this.applyFilters()
+      }
+    },
+
+    getUsernamesDisplay() {
+      if (!this.filters.userFilter || this.filters.userFilter.length === 0) {
+        return ''
+      }
+      if (this.filters.userFilter.length === 1) {
+        return this.getUsernameById(this.filters.userFilter[0])
+      }
+      if (this.filters.userFilter.length === 2) {
+        return `${this.getUsernameById(this.filters.userFilter[0])}, ${this.getUsernameById(this.filters.userFilter[1])}`
+      }
+      return `${this.getUsernameById(this.filters.userFilter[0])}, ${this.getUsernameById(this.filters.userFilter[1])} (+${this.filters.userFilter.length - 2} others)`
     },
 
     getUsernameById(userId) {
@@ -1338,6 +1650,48 @@ export default {
       return 'error'
     },
 
+    getDatasetDetailsTitle() {
+      if (this.hasPerspectiveAnswerFilter) {
+        const perspectiveName = this.getPerspectiveNameById(this.filters.perspectiveFilter)
+        const answerPreview = this.filters.answerFilter.length > 30 
+          ? this.filters.answerFilter.substring(0, 30) + '...' 
+          : this.filters.answerFilter
+        return `Filtered Dataset Details - ${perspectiveName}: "${answerPreview}"`
+      }
+      
+      if (this.hasUserFilter) {
+        const userDisplay = this.getUsernamesDisplay()
+        return `Filtered Dataset Details - ${userDisplay}`
+      }
+      
+      if (this.hasActiveFilters) {
+        return 'Filtered Dataset Details'
+      }
+      
+      return 'Dataset Details'
+    },
+
+    getUserDetailsTitle() {
+      if (this.hasPerspectiveAnswerFilter) {
+        const perspectiveName = this.getPerspectiveNameById(this.filters.perspectiveFilter)
+        const answerPreview = this.filters.answerFilter.length > 30 
+          ? this.filters.answerFilter.substring(0, 30) + '...' 
+          : this.filters.answerFilter
+        return `Filtered User Details - Users who answered "${answerPreview}" to ${perspectiveName}`
+      }
+      
+      if (this.hasUserFilter) {
+        const userDisplay = this.getUsernamesDisplay()
+        return `Filtered User Details - ${userDisplay}`
+      }
+      
+      if (this.hasActiveFilters) {
+        return 'Filtered User Details'
+      }
+      
+      return 'User Details'
+    },
+
     getAnswersColor(count) {
       if (count >= 10) return 'success'
       if (count >= 5) return 'warning'
@@ -1373,46 +1727,668 @@ export default {
         // Load perspective answers from backend with user filter if active
         const response = await this.$repositories.metrics.fetchPerspectiveAnswers(this.projectId, perspective.id)
         
-        // If user filter is active, filter answers by that user
-        if (this.filters.userFilter) {
-          const filteredAnswers = (response.answers || []).filter(answer => {
-            const user = this.availableUsers.find(u => u.id === parseInt(this.filters.userFilter))
-            return user && answer.username === user.username
+        let filteredAnswers = response.answers || []
+        
+        // If answer filter is active, filter answers by the specific answer
+        if (this.filters.answerFilter) {
+          filteredAnswers = filteredAnswers.filter(answer => {
+            // For open text questions, check text field
+            if (perspective.type === 'open') {
+              return answer.text && answer.text.toLowerCase().includes(this.filters.answerFilter.toLowerCase())
+            } else {
+              // For multiple choice questions, check selectedOption field
+              return answer.selectedOption && answer.selectedOption.toLowerCase().includes(this.filters.answerFilter.toLowerCase())
+            }
           })
-          this.perspectiveAnswersList = filteredAnswers
-        } else {
-          this.perspectiveAnswersList = response.answers || []
         }
+        
+        // If user filter is active, filter answers by selected users
+        if (this.filters.userFilter && this.filters.userFilter.length > 0) {
+          const selectedUsernames = this.filters.userFilter.map(userId => {
+            const user = this.availableUsers.find(u => u.id === parseInt(userId))
+            return user ? user.username : null
+          }).filter(Boolean)
+          
+          filteredAnswers = filteredAnswers.filter(answer => {
+            return selectedUsernames.includes(answer.username)
+          })
+        }
+        
+        this.perspectiveAnswersList = filteredAnswers
       } catch (error) {
         console.error('Error loading perspective answers:', error)
         this.perspectiveAnswersList = []
-        this.$toast.error('Failed to load perspective answers')
+        if (this.$toast && typeof this.$toast.error === 'function') {
+          this.$toast.error('Failed to load perspective answers')
+        } else {
+          console.error('❌ Failed to load perspective answers')
+        }
       }
     },
 
-    exportStatistics() {
+    async exportToPDF(event) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
       this.exporting = true
       try {
-        // For now, we'll create a simple CSV export
-        // In the future, this could be enhanced to PDF
-        const csvData = this.generateCSVData()
-        const blob = new Blob([csvData], { type: 'text/csv' })
-        const url = window.URL.createObjectURL(blob)
+        console.log('📄 Iniciando geração do PDF...');
         
-        const link = document.createElement('a')
-        link.href = url
-        link.setAttribute('download', `statistics-${this.project.name}-${new Date().toISOString().split('T')[0]}.csv`)
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
+        // Verificar se há dados para exportar
+        if ((!this.datasetDetails || this.datasetDetails.length === 0) && 
+            (!this.userDetails || this.userDetails.length === 0) &&
+            (!this.perspectiveDetails || this.perspectiveDetails.length === 0) &&
+            (!this.labelDistribution || this.labelDistribution.length === 0)) {
+          throw new Error('Não há dados para exportar no PDF.');
+        }
+
+        // Dynamic import to avoid SSR issues
+        const jsPDF = (await import('jspdf')).default;
+        const autoTable = (await import('jspdf-autotable')).default;
+
+        // eslint-disable-next-line new-cap
+        const doc = new jsPDF();
         
-        this.$toast.success('Statistics exported successfully')
+        let yPosition = 20;
+
+        // Header do documento
+        doc.setFontSize(18);
+        doc.setFont('helvetica', 'bold');
+        doc.text('STATISTICS REPORT', 14, yPosition);
+        yPosition += 10;
+
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Project: ${this.project.name}`, 14, yPosition);
+        yPosition += 6;
+        doc.text(`Generated: ${new Date().toLocaleString()}`, 14, yPosition);
+        yPosition += 10;
+
+        // Active filters information
+        if (this.hasActiveFilters) {
+          doc.setFontSize(14);
+          doc.setFont('helvetica', 'bold');
+          doc.text('ACTIVE FILTERS:', 14, yPosition);
+          yPosition += 8;
+          
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+          
+          if (this.filters.textFilter) {
+            doc.text(`• Text: ${this.filters.textFilter.substring(0, 50)}...`, 14, yPosition);
+            yPosition += 6;
+          }
+          if (this.filters.discrepancyFilter) {
+            doc.text(`• Discrepancy: ${this.filters.discrepancyFilter}`, 14, yPosition);
+            yPosition += 6;
+          }
+          if (this.filters.userFilter && this.filters.userFilter.length > 0) {
+            const usernames = this.filters.userFilter.map(uid => this.getUsernameById(uid)).join(', ');
+            doc.text(`• Users: ${usernames}`, 14, yPosition);
+            yPosition += 6;
+          }
+          if (this.filters.labelFilter) {
+            doc.text(`• Label: ${this.filters.labelFilter}`, 14, yPosition);
+            yPosition += 6;
+          }
+          if (this.filters.perspectiveFilter) {
+            const perspective = this.availablePerspectives.find(p => p.id === this.filters.perspectiveFilter);
+            doc.text(`• Questão: ${perspective ? perspective.text.substring(0, 40) + '...' : 'N/A'}`, 14, yPosition);
+            yPosition += 6;
+          }
+          if (this.filters.answerFilter) {
+            doc.text(`• Answer: ${this.filters.answerFilter.substring(0, 40)}...`, 14, yPosition);
+            yPosition += 6;
+          }
+          yPosition += 5;
+        }
+
+        // Overall Statistics
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('OVERALL STATISTICS:', 14, yPosition);
+        yPosition += 8;
+
+        const overallData = [
+          ['Total Examples', this.shouldShowDatasetDetails ? this.filteredDatasetDetails.length : this.stats.totalExamples],
+          ['Total Labels', this.stats.totalLabels || 0],
+          ['Total Users', this.shouldShowUserDetails ? (this.hasUserFilter ? this.filteredUserDetails.length : this.userDetails.length) : this.stats.totalUsers],
+          ['Discrepancy Rate', `${this.stats.discrepancyRate || 0}%`]
+        ];
+
+        autoTable(doc, {
+          startY: yPosition,
+          head: [['Metric', 'Value']],
+          body: overallData,
+          theme: 'striped',
+          headStyles: {
+            fillColor: [63, 81, 181],
+            textColor: 255,
+            fontSize: 10,
+            fontStyle: 'bold'
+          },
+          bodyStyles: {
+            fontSize: 9,
+            cellPadding: 3
+          },
+          columnStyles: {
+            0: { cellWidth: 80 },
+            1: { cellWidth: 40, halign: 'center' }
+          }
+        });
+
+        yPosition = doc.lastAutoTable.finalY + 15;
+
+        // Dataset Details Table (if visible)
+        if (this.shouldShowDatasetDetails && this.filteredDatasetDetails.length > 0) {
+          // Check if we need a new page
+          if (yPosition > 200) {
+            doc.addPage();
+            yPosition = 20;
+          }
+
+          doc.setFontSize(14);
+          doc.setFont('helvetica', 'bold');
+          doc.text(this.getDatasetDetailsTitle().toUpperCase(), 14, yPosition);
+          yPosition += 8;
+
+          const datasetTableData = this.filteredDatasetDetails.slice(0, 20).map(item => [
+            item.id || 'N/A',
+            (item.text || 'N/A').substring(0, 40) + '...',
+            item.discrepancy || 'No',
+            item.participationNumbers || '0/0',
+            `${Math.round(item.participationPercentage || 0)}%`,
+            item.annotationDetails ? item.annotationDetails.map(a => a.label).slice(0, 2).join(', ') : 'None'
+          ]);
+
+          autoTable(doc, {
+            startY: yPosition,
+            head: [['ID', 'Text', 'Discrepancy', 'Participation', '%', 'Labels']],
+            body: datasetTableData,
+            theme: 'striped',
+            headStyles: {
+              fillColor: [255, 152, 0],
+              textColor: 255,
+              fontSize: 8,
+              fontStyle: 'bold'
+            },
+            bodyStyles: {
+              fontSize: 7,
+              cellPadding: 2
+            },
+            columnStyles: {
+              0: { cellWidth: 15 },
+              1: { cellWidth: 60 },
+              2: { cellWidth: 20, halign: 'center' },
+              3: { cellWidth: 25, halign: 'center' },
+              4: { cellWidth: 15, halign: 'center' },
+              5: { cellWidth: 55 }
+            }
+          });
+
+          yPosition = doc.lastAutoTable.finalY + 15;
+        }
+
+        // User Details Table (if visible)
+        if (this.shouldShowUserDetails && this.userDetails.length > 0) {
+          // Check if we need a new page
+          if (yPosition > 200) {
+            doc.addPage();
+            yPosition = 20;
+          }
+
+          doc.setFontSize(14);
+          doc.setFont('helvetica', 'bold');
+          doc.text(this.getUserDetailsTitle().toUpperCase(), 14, yPosition);
+          yPosition += 8;
+
+          const usersToShow = this.hasUserFilter ? this.filteredUserDetails : this.userDetails;
+          const userTableData = usersToShow.slice(0, 15).map(user => [
+            user.username || 'N/A',
+            user.textsLabeled?.toString() || '0',
+            user.totalLabels?.toString() || '0',
+            user.participation ? `${user.participation.toFixed(1)}%` : '0%'
+          ]);
+
+          autoTable(doc, {
+            startY: yPosition,
+            head: [['Username', 'Texts Labeled', 'Total Labels', 'Participation']],
+            body: userTableData,
+            theme: 'striped',
+            headStyles: {
+              fillColor: [76, 175, 80],
+              textColor: 255,
+              fontSize: 10,
+              fontStyle: 'bold'
+            },
+            bodyStyles: {
+              fontSize: 9,
+              cellPadding: 2
+            },
+            columnStyles: {
+              0: { cellWidth: 60 },
+              1: { cellWidth: 35, halign: 'center' },
+              2: { cellWidth: 35, halign: 'center' },
+              3: { cellWidth: 35, halign: 'center' }
+            }
+          });
+
+          yPosition = doc.lastAutoTable.finalY + 15;
+        }
+
+        // Perspective Details Table (if visible)
+        if (this.shouldShowPerspectiveDetails && this.perspectiveDetails.length > 0) {
+          // Check if we need a new page
+          if (yPosition > 200) {
+            doc.addPage();
+            yPosition = 20;
+          }
+
+          doc.setFontSize(14);
+          doc.setFont('helvetica', 'bold');
+          doc.text('PERSPECTIVE DETAILS', 14, yPosition);
+          yPosition += 8;
+
+          const perspectivesToShow = (this.hasUserFilter || this.hasPerspectiveFilter) ? this.filteredPerspectiveDetails : this.perspectiveDetails;
+          const perspectiveTableData = perspectivesToShow.slice(0, 15).map(perspective => [
+            perspective.question ? perspective.question.substring(0, 50) + '...' : 'N/A',
+            perspective.type || 'N/A',
+            perspective.answers?.toString() || '0',
+            `${Math.round(perspective.responseRate || 0)}%`
+          ]);
+
+          autoTable(doc, {
+            startY: yPosition,
+            head: [['Question', 'Type', 'Answers', 'Response Rate']],
+            body: perspectiveTableData,
+            theme: 'striped',
+            headStyles: {
+              fillColor: [156, 39, 176],
+              textColor: 255,
+              fontSize: 10,
+              fontStyle: 'bold'
+            },
+            bodyStyles: {
+              fontSize: 9,
+              cellPadding: 2
+            },
+            columnStyles: {
+              0: { cellWidth: 100 },
+              1: { cellWidth: 30, halign: 'center' },
+              2: { cellWidth: 25, halign: 'center' },
+              3: { cellWidth: 35, halign: 'center' }
+            }
+          });
+
+          yPosition = doc.lastAutoTable.finalY + 15;
+        }
+
+        // Label Distribution Table (if visible and has data)
+        if (this.labelDistribution && this.labelDistribution.length > 0) {
+          // Check if we need a new page
+          if (yPosition > 200) {
+            doc.addPage();
+            yPosition = 20;
+          }
+
+          doc.setFontSize(14);
+          doc.setFont('helvetica', 'bold');
+          doc.text('LABEL DISTRIBUTION', 14, yPosition);
+          yPosition += 8;
+
+          const labelTableData = this.labelDistribution.slice(0, 15).map(label => [
+            label.label || 'N/A',
+            label.count?.toString() || '0',
+            `${label.percentage || 0}%`
+          ]);
+
+          autoTable(doc, {
+            startY: yPosition,
+            head: [['Label', 'Count', 'Percentage']],
+            body: labelTableData,
+            theme: 'striped',
+            headStyles: {
+              fillColor: [33, 150, 243],
+              textColor: 255,
+              fontSize: 10,
+              fontStyle: 'bold'
+            },
+            bodyStyles: {
+              fontSize: 9,
+              cellPadding: 2
+            },
+            columnStyles: {
+              0: { cellWidth: 100 },
+              1: { cellWidth: 40, halign: 'center' },
+              2: { cellWidth: 40, halign: 'center' }
+            }
+          });
+        }
+
+        // Save PDF
+        const timestamp = new Date().toISOString().split('T')[0];
+        const projectName = (this.project.name || 'projeto').replace(/[^a-z0-9]/gi, '_');
+        const filename = `statistics-${projectName}-${timestamp}.pdf`;
+        
+        // Use requestAnimationFrame to ensure the PDF generation is complete
+        requestAnimationFrame(() => {
+          try {
+            doc.save(filename);
+            // Safe toast notification
+            if (this.$toast && typeof this.$toast.success === 'function') {
+              this.$toast.success('PDF exportado com sucesso');
+            } else {
+              console.log('✅ PDF exportado com sucesso');
+            }
+          } catch (saveError) {
+            console.error('Error saving PDF:', saveError);
+            // Safe error notification
+            if (this.$toast && typeof this.$toast.error === 'function') {
+              this.$toast.error('Erro ao baixar o PDF');
+            } else {
+              console.error('❌ Erro ao baixar o PDF');
+              alert('Erro ao baixar o PDF');
+            }
+          }
+        });
+
+        return; // Ensure method exits after successful export
+
       } catch (error) {
-        console.error('Error exporting statistics:', error)
-        this.$toast.error('Failed to export statistics')
+        console.error('❌ Erro ao gerar PDF:', error);
+        // Safe error notification
+        if (this.$toast && typeof this.$toast.error === 'function') {
+          this.$toast.error(`Erro ao exportar: ${error.message}`);
+        } else {
+          console.error(`❌ Erro ao exportar: ${error.message}`);
+          alert(`Erro ao exportar PDF: ${error.message}`);
+        }
+        return; // Ensure method exits after error
       } finally {
         this.exporting = false
       }
+    },
+
+    exportToCSV(event) {
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      this.exporting = true
+      try {
+        console.log('📊 Iniciando exportação CSV...');
+        
+        // Verificar se há dados para exportar (qualquer tabela com dados)
+        const hasDatasetData = this.shouldShowDatasetDetails && this.filteredDatasetDetails && this.filteredDatasetDetails.length > 0;
+        const hasUserData = this.shouldShowUserDetails && this.userDetails && this.userDetails.length > 0;
+        const hasPerspectiveData = this.shouldShowPerspectiveDetails && this.perspectiveDetails && this.perspectiveDetails.length > 0;
+        const hasLabelData = this.labelDistribution && this.labelDistribution.length > 0;
+        
+        if (!hasDatasetData && !hasUserData && !hasPerspectiveData && !hasLabelData) {
+          throw new Error('Não há dados para exportar em CSV.');
+        }
+        
+        console.log('📊 Dados encontrados:', {
+          dataset: hasDatasetData,
+          users: hasUserData,
+          perspectives: hasPerspectiveData,
+          labels: hasLabelData
+        });
+        
+        // Criar conteúdo CSV
+        let csvContent = '\uFEFF'; // BOM para UTF-8
+        csvContent += `"STATISTICS REPORT - ${this.project.name || 'Projeto'}"\n`;
+        csvContent += `"Data: ${new Date().toLocaleDateString('pt-PT')} ${new Date().toLocaleTimeString('pt-PT')}"\n`;
+        csvContent += '"\n';
+        
+        // Active Filters Section
+        if (this.hasActiveFilters) {
+          csvContent += '"ACTIVE FILTERS:"\n';
+          if (this.filters.textFilter) {
+            csvContent += `"Text Filter:","${this.filters.textFilter.replace(/"/g, '""')}"\n`;
+          }
+          if (this.filters.discrepancyFilter) {
+            csvContent += `"Discrepancy Filter:","${this.filters.discrepancyFilter}"\n`;
+          }
+          if (this.filters.userFilter && this.filters.userFilter.length > 0) {
+            const usernames = this.filters.userFilter.map(uid => this.getUsernameById(uid)).join(', ');
+            csvContent += `"User Filter:","${usernames}"\n`;
+          }
+          if (this.filters.labelFilter) {
+            csvContent += `"Label Filter:","${this.filters.labelFilter}"\n`;
+          }
+          if (this.filters.perspectiveFilter) {
+            const perspective = this.availablePerspectives.find(p => p.id === this.filters.perspectiveFilter);
+            csvContent += `"Perspective Filter:","${perspective ? perspective.text.replace(/"/g, '""') : 'N/A'}"\n`;
+          }
+          if (this.filters.answerFilter) {
+            csvContent += `"Answer Filter:","${this.filters.answerFilter.replace(/"/g, '""')}"\n`;
+          }
+          csvContent += '"\n';
+        }
+        
+        // Overall Statistics Section
+        csvContent += '"OVERALL STATISTICS:"\n';
+        csvContent += '"Metric","Value"\n';
+        
+        const totalExamples = hasDatasetData ? this.filteredDatasetDetails.length : (this.stats?.totalExamples || 0);
+        const totalLabels = this.stats?.totalLabels || 0;
+        const totalUsers = hasUserData ? (this.hasUserFilter ? (this.filteredUserDetails?.length || 0) : (this.userDetails?.length || 0)) : (this.stats?.totalUsers || 0);
+        const discrepancyRate = this.stats?.discrepancyRate || 0;
+        
+        csvContent += `"Total Examples","${totalExamples}"\n`;
+        csvContent += `"Total Labels","${totalLabels}"\n`;
+        csvContent += `"Total Users","${totalUsers}"\n`;
+        csvContent += `"Discrepancy Rate","${discrepancyRate}%"\n`;
+        csvContent += '"\n';
+        
+        // Dataset Details Section (if visible)
+        if (hasDatasetData) {
+          csvContent += `"${this.getDatasetDetailsTitle().toUpperCase()}:"\n`;
+          csvContent += '"ID","Text","Discrepancy","Participation","Participation %","Labels"\n';
+          
+          console.log('📋 Exportando', this.filteredDatasetDetails.length, 'dataset details');
+          this.filteredDatasetDetails.forEach(item => {
+            const text = (item.text || 'N/A').replace(/"/g, '""');
+            const labels = item.annotationDetails 
+              ? item.annotationDetails.map(a => a.label).join('; ').replace(/"/g, '""')
+              : 'None';
+            
+            csvContent += `"${item.id || 'N/A'}","${text}","${item.discrepancy || 'No'}","${item.participationNumbers || '0/0'}","${Math.round(item.participationPercentage || 0)}%","${labels}"\n`;
+          });
+          csvContent += '"\n';
+        }
+        
+        // User Details Section (if visible)
+        if (hasUserData) {
+          const usersToShow = this.hasUserFilter ? this.filteredUserDetails : this.userDetails;
+          csvContent += `"${this.getUserDetailsTitle().toUpperCase()}:"\n`;
+          csvContent += '"Username","Texts Labeled","Total Labels","Participation %"\n';
+          
+          console.log('👥 Exportando', usersToShow.length, 'user details');
+          usersToShow.forEach(user => {
+            csvContent += `"${user.username || 'N/A'}","${user.textsLabeled || 0}","${user.totalLabels || 0}","${user.participation ? user.participation.toFixed(1) : 0}%"\n`;
+          });
+          csvContent += '"\n';
+        }
+        
+        // Perspective Details Section (if visible)
+        if (hasPerspectiveData) {
+          const perspectivesToShow = (this.hasUserFilter || this.hasPerspectiveFilter) ? this.filteredPerspectiveDetails : this.perspectiveDetails;
+          csvContent += '"PERSPECTIVE DETAILS:"\n';
+          csvContent += '"Question","Type","Answers","Response Rate %"\n';
+          
+          console.log('❓ Exportando', perspectivesToShow.length, 'perspective details');
+          perspectivesToShow.forEach(perspective => {
+            const question = (perspective.question || 'N/A').replace(/"/g, '""');
+            csvContent += `"${question}","${perspective.type || 'N/A'}","${perspective.answers || 0}","${Math.round(perspective.responseRate || 0)}%"\n`;
+          });
+          csvContent += '"\n';
+        }
+        
+        // Label Distribution Section (if has data)
+        if (hasLabelData) {
+          csvContent += '"LABEL DISTRIBUTION:"\n';
+          csvContent += '"Label","Count","Percentage"\n';
+          
+          console.log('🏷️ Exportando', this.labelDistribution.length, 'label distribution');
+          this.labelDistribution.forEach(label => {
+            const labelName = (label.label || 'N/A').replace(/"/g, '""');
+            csvContent += `"${labelName}","${label.count || 0}","${label.percentage || 0}%"\n`;
+          });
+          csvContent += '"\n';
+        }
+        
+        console.log('📦 Criando arquivo CSV...');
+        
+        // Criar e baixar arquivo
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        
+        const timestamp = new Date().toISOString().split('T')[0];
+        const projectName = (this.project?.name || 'projeto').replace(/[^a-z0-9]/gi, '_');
+        const filename = `statistics-${projectName}-${timestamp}.csv`;
+        link.download = filename;
+        link.style.display = 'none';
+        link.setAttribute('target', '_self');
+        
+        console.log('📁 Nome do arquivo:', filename);
+        
+        document.body.appendChild(link);
+        
+        // Use requestAnimationFrame to ensure the DOM is updated
+        requestAnimationFrame(() => {
+          try {
+            link.click();
+            console.log('✅ Download iniciado com sucesso');
+            
+            setTimeout(() => {
+              try {
+                if (document.body.contains(link)) {
+                  document.body.removeChild(link);
+                }
+                URL.revokeObjectURL(url);
+                console.log('🧹 Limpeza concluída');
+              } catch (e) {
+                console.warn('⚠️ Error cleaning up download link:', e);
+              }
+            }, 1000);
+          } catch (clickError) {
+            console.error('❌ Erro ao iniciar download:', clickError);
+            throw new Error(`Erro ao baixar arquivo: ${clickError.message}`);
+          }
+        });
+        
+        // Safe toast notification
+        if (this.$toast && typeof this.$toast.success === 'function') {
+          this.$toast.success('Estatísticas exportadas para CSV com sucesso');
+        } else {
+          console.log('✅ CSV exportado com sucesso');
+        }
+        return; // Ensure method exits after successful export
+        
+      } catch (error) {
+        console.error('❌ Erro ao gerar CSV:', error);
+        // Safe error notification
+        if (this.$toast && typeof this.$toast.error === 'function') {
+          this.$toast.error(`Erro ao exportar: ${error.message}`);
+        } else {
+          console.error(`❌ Erro ao exportar: ${error.message}`);
+          alert(`Erro ao exportar CSV: ${error.message}`);
+        }
+        return; // Ensure method exits after error
+      } finally {
+        this.exporting = false
+      }
+    },
+
+    generatePDFData() {
+      const lines = []
+      
+      // Header
+      lines.push(`STATISTICS REPORT FOR PROJECT: ${this.project.name}`)
+      lines.push(`Generated on: ${new Date().toLocaleString()}`)
+      lines.push('=' .repeat(60))
+      lines.push('')
+      
+      // Active Filters Summary
+      if (this.hasActiveFilters) {
+        lines.push('ACTIVE FILTERS:')
+        if (this.filters.textFilter) lines.push(`- Text Filter: ${this.filters.textFilter.substring(0, 50)}...`)
+        if (this.filters.discrepancyFilter) lines.push(`- Discrepancy Filter: ${this.filters.discrepancyFilter}`)
+        if (this.filters.userFilter && this.filters.userFilter.length > 0) {
+          const usernames = this.filters.userFilter.map(uid => this.getUsernameById(uid)).join(', ')
+          lines.push(`- User Filter: ${usernames}`)
+        }
+        if (this.filters.labelFilter) lines.push(`- Label Filter: ${this.filters.labelFilter}`)
+        if (this.filters.perspectiveFilter) lines.push(`- Perspective Filter: ${this.getPerspectiveNameById(this.filters.perspectiveFilter)}`)
+        if (this.filters.answerFilter) lines.push(`- Answer Filter: ${this.filters.answerFilter}`)
+        lines.push('')
+      }
+      
+      // Overall Stats
+      lines.push('OVERALL STATISTICS:')
+      lines.push('-' .repeat(30))
+      lines.push(`Total Examples: ${this.shouldShowDatasetDetails ? this.filteredDatasetDetails.length : this.stats.totalExamples}`)
+      lines.push(`Total Labels: ${this.stats.totalLabels}`)
+      lines.push(`Total Users: ${this.shouldShowUserDetails ? (this.hasUserFilter ? this.filteredUserDetails.length : this.userDetails.length) : this.stats.totalUsers}`)
+      lines.push(`Discrepancy Rate: ${this.stats.discrepancyRate}%`)
+      lines.push('')
+      
+      // Dataset Details
+      if (this.shouldShowDatasetDetails && this.filteredDatasetDetails.length > 0) {
+        lines.push(`${this.getDatasetDetailsTitle().toUpperCase()}:`)
+        lines.push('-' .repeat(40))
+        this.filteredDatasetDetails.forEach((item, index) => {
+          lines.push(`${index + 1}. ${item.text}`)
+          lines.push(`   Discrepancy: ${item.discrepancy}`)
+          lines.push(`   Participation: ${item.participationNumbers} (${Math.round(item.participationPercentage)}%)`)
+          lines.push(`   Annotations: ${item.annotationDetails ? item.annotationDetails.map(a => a.label).join(', ') : 'None'}`)
+          lines.push('')
+        })
+      }
+      
+      // User Details
+      if (this.shouldShowUserDetails && this.userDetails.length > 0) {
+        const usersToShow = this.hasUserFilter ? this.filteredUserDetails : this.userDetails
+        lines.push(`${this.getUserDetailsTitle().toUpperCase()}:`)
+        lines.push('-' .repeat(40))
+        usersToShow.forEach((user, index) => {
+          lines.push(`${index + 1}. ${user.username}`)
+          lines.push(`   Texts Labeled: ${user.textsLabeled}/${user.textsAssigned}`)
+          lines.push(`   Total Labels: ${user.totalLabels}`)
+          lines.push(`   Participation: ${Math.round(user.participation)}%`)
+          lines.push('')
+        })
+      }
+      
+      // Perspective Details
+      if (this.shouldShowPerspectiveDetails && this.perspectiveDetails.length > 0) {
+        const perspectivesToShow = (this.hasUserFilter || this.hasPerspectiveFilter) ? this.filteredPerspectiveDetails : this.perspectiveDetails
+        lines.push('PERSPECTIVE DETAILS:')
+        lines.push('-' .repeat(40))
+        perspectivesToShow.forEach((perspective, index) => {
+          lines.push(`${index + 1}. ${perspective.question}`)
+          lines.push(`   Type: ${perspective.type}`)
+          lines.push(`   Answers: ${perspective.answers}`)
+          lines.push(`   Response Rate: ${Math.round(perspective.responseRate)}%`)
+          lines.push('')
+        })
+      }
+      
+      return lines.join('\n')
+    },
+
+    exportStatistics(event) {
+      // Keep the old method for backward compatibility, but redirect to CSV
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      this.exportToCSV(event)
     },
 
     generateCSVData() {
