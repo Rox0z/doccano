@@ -1107,12 +1107,21 @@ class DatasetDetailsAPI(APIView):
             project_id = self.kwargs["project_id"]
             project = get_object_or_404(Project, pk=project_id)
             
-            # Get filter parameters
+            # Get filter parameters with detailed logging
             text_filter = request.GET.get('text')
-            user_filter = request.GET.get('user_id')
+            user_filters = request.GET.getlist('user_id')  # Support multiple users
             label_filter = request.GET.get('label')
             discrepancy_filter = request.GET.get('discrepancy')
             perspective_filter = request.GET.get('question_id')
+            answer_filter = request.GET.get('answer')  # New filter for perspective answers
+            
+            # Debug: Print all request parameters
+            print(f"DEBUG - All request GET parameters: {dict(request.GET)}")
+            print(f"DEBUG - user_filters from getlist('user_id'): {user_filters}")
+            print(f"DEBUG - answer_filter: {answer_filter}")
+            print(f"DEBUG - perspective_filter: {perspective_filter}")
+            print(f"DEBUG - Type of user_filters: {type(user_filters)}")
+            print(f"DEBUG - Length of user_filters: {len(user_filters) if user_filters else 0}")
             
             # Get all examples with their annotations and assignments
             examples_queryset = Example.objects.filter(project=project_id).prefetch_related(
@@ -1128,12 +1137,46 @@ class DatasetDetailsAPI(APIView):
                 examples_queryset = examples_queryset.filter(text__icontains=text_filter)
             
             # Apply user filter - only examples that this user annotated
-            if user_filter:
+            # If perspective + answer filter is active, filter by users who gave specific answers
+            if perspective_filter and answer_filter:
                 try:
-                    user_id = int(user_filter)
-                    examples_queryset = examples_queryset.filter(
-                        Q(spans__user_id=user_id) | Q(categories__user_id=user_id)
-                    ).distinct()
+                    question_id = int(perspective_filter)
+                    question = get_object_or_404(Question, pk=question_id)
+                    
+                    # Find users who gave the specific answer to the specific question
+                    # Handle both open text and multiple choice questions
+                    if question.question_type == 'open':
+                        # For open questions, search in text_answer field
+                        matching_answers = Answer.objects.filter(
+                            question_id=question_id,
+                            text_answer__icontains=answer_filter
+                        ).values_list('user_id', flat=True)
+                    else:
+                        # For multiple choice questions, search in selected_option__text field
+                        matching_answers = Answer.objects.filter(
+                            question_id=question_id,
+                            selected_option__text__icontains=answer_filter
+                        ).values_list('user_id', flat=True)
+                    
+                    if matching_answers:
+                        print(f"DEBUG - Found users who answered '{answer_filter}' to question {question_id}: {list(matching_answers)}")
+                        # Filter examples to show only those annotated by users who gave this answer
+                        examples_queryset = examples_queryset.filter(
+                            Q(spans__user_id__in=matching_answers) | Q(categories__user_id__in=matching_answers)
+                        ).distinct()
+                    else:
+                        # No users gave this answer, return empty queryset
+                        print(f"DEBUG - No users gave answer '{answer_filter}' to question {question_id}")
+                        examples_queryset = examples_queryset.none()
+                except (ValueError, TypeError):
+                    pass
+            elif user_filters:
+                try:
+                    user_ids = [int(uid) for uid in user_filters if uid]
+                    if user_ids:
+                        examples_queryset = examples_queryset.filter(
+                            Q(spans__user_id__in=user_ids) | Q(categories__user_id__in=user_ids)
+                        ).distinct()
                 except (ValueError, TypeError):
                     pass
             
@@ -1158,14 +1201,27 @@ class DatasetDetailsAPI(APIView):
                 # Get annotations (spans and categories)
                 annotations = []
                 
+                # Apply user filter to annotations if active
+                spans_for_annotations = example.spans.all()
+                categories_for_annotations = example.categories.all()
+                
+                if user_filters:
+                    try:
+                        user_ids = [int(uid) for uid in user_filters if uid]
+                        if user_ids:
+                            spans_for_annotations = spans_for_annotations.filter(user_id__in=user_ids)
+                            categories_for_annotations = categories_for_annotations.filter(user_id__in=user_ids)
+                    except (ValueError, TypeError):
+                        pass
+                
                 # Get spans
-                for span in example.spans.all():
+                for span in spans_for_annotations:
                     label_text = span.label.text if span.label else 'No Label'
                     user_name = span.user.username if span.user else 'Unknown'
                     annotations.append(f"{label_text} (by {user_name})")
                 
                 # Get categories
-                for category in example.categories.all():
+                for category in categories_for_annotations:
                     label_text = category.label.text if category.label else 'No Label'
                     user_name = category.user.username if category.user else 'Unknown'
                     annotations.append(f"{label_text} (by {user_name})")
@@ -1173,13 +1229,26 @@ class DatasetDetailsAPI(APIView):
                 # Check for discrepancies
                 user_labels = defaultdict(set)
                 
+                # Apply user filter to spans and categories for discrepancy analysis if active
+                spans_for_discrepancy = example.spans.all()
+                categories_for_discrepancy = example.categories.all()
+                
+                if user_filters:
+                    try:
+                        user_ids = [int(uid) for uid in user_filters if uid]
+                        if user_ids:
+                            spans_for_discrepancy = spans_for_discrepancy.filter(user_id__in=user_ids)
+                            categories_for_discrepancy = categories_for_discrepancy.filter(user_id__in=user_ids)
+                    except (ValueError, TypeError):
+                        pass
+                
                 # Collect labels by user for spans
-                for span in example.spans.all():
+                for span in spans_for_discrepancy:
                     if span.user and span.label:
                         user_labels[span.user_id].add(span.label.text)
                 
                 # Collect labels by user for categories  
-                for category in example.categories.all():
+                for category in categories_for_discrepancy:
                     if category.user and category.label:
                         user_labels[category.user_id].add(category.label.text)
                 
@@ -1199,11 +1268,13 @@ class DatasetDetailsAPI(APIView):
                 # Participation: show assigned vs who actually annotated
                 annotating_users = set()
                 annotating_user_objects = []
-                for span in example.spans.all():
+                
+                # Use filtered spans and categories for participation if user filter is active
+                for span in spans_for_discrepancy:  # Reuse the filtered spans
                     if span.user:
                         annotating_users.add(span.user.username)
                         annotating_user_objects.append({'id': span.user.id, 'username': span.user.username})
-                for category in example.categories.all():
+                for category in categories_for_discrepancy:  # Reuse the filtered categories
                     if category.user:
                         annotating_users.add(category.user.username)
                         annotating_user_objects.append({'id': category.user.id, 'username': category.user.username})
@@ -1227,8 +1298,21 @@ class DatasetDetailsAPI(APIView):
                 # Build detailed annotation information - Group by label
                 annotation_details = {}
                 
+                # Apply user filter to spans and categories if active
+                spans_to_process = example.spans.all()
+                categories_to_process = example.categories.all()
+                
+                if user_filters:
+                    try:
+                        user_ids = [int(uid) for uid in user_filters if uid]
+                        if user_ids:
+                            spans_to_process = spans_to_process.filter(user_id__in=user_ids)
+                            categories_to_process = categories_to_process.filter(user_id__in=user_ids)
+                    except (ValueError, TypeError):
+                        pass
+                
                 # Process spans
-                for span in example.spans.all():
+                for span in spans_to_process:
                     if span.label:
                         label_text = span.label.text
                         if label_text not in annotation_details:
@@ -1258,7 +1342,7 @@ class DatasetDetailsAPI(APIView):
                         annotation_details[label_text]['types'].add('span')
                 
                 # Process categories
-                for category in example.categories.all():
+                for category in categories_to_process:
                     if category.label:
                         label_text = category.label.text
                         if label_text not in annotation_details:
@@ -1311,6 +1395,36 @@ class DatasetDetailsAPI(APIView):
             # Calculate user details
             user_details = []
             all_members = Member.objects.filter(project=project_id).select_related('user')
+            
+            # If perspective + answer filter is active, only show users who gave that answer
+            if perspective_filter and answer_filter:
+                try:
+                    question_id = int(perspective_filter)
+                    question = get_object_or_404(Question, pk=question_id)
+                    
+                    # Handle both open text and multiple choice questions
+                    if question.question_type == 'open':
+                        # For open questions, search in text_answer field
+                        matching_user_ids = Answer.objects.filter(
+                            question_id=question_id,
+                            text_answer__icontains=answer_filter
+                        ).values_list('user_id', flat=True)
+                    else:
+                        # For multiple choice questions, search in selected_option__text field
+                        matching_user_ids = Answer.objects.filter(
+                            question_id=question_id,
+                            selected_option__text__icontains=answer_filter
+                        ).values_list('user_id', flat=True)
+                    
+                    if matching_user_ids:
+                        all_members = all_members.filter(user_id__in=matching_user_ids)
+                        print(f"DEBUG - Filtering user details to users who answered '{answer_filter}': {list(matching_user_ids)}")
+                    else:
+                        all_members = all_members.none()
+                        print(f"DEBUG - No users to show in user details for answer '{answer_filter}'")
+                except (ValueError, TypeError):
+                    pass
+            
             for member in all_members:
                 user = member.user
                 # Get all examples assigned to this user (sem filtro extra)
@@ -1360,43 +1474,100 @@ class DatasetDetailsAPI(APIView):
                         pass
                 
                 questions = questions_queryset
-                total_members = all_members.count()
+                # IMPORTANT: Always use the original total members count for response rate calculation
+                # Even when user filters are active, response rate should be based on all project members
+                original_total_members = Member.objects.filter(project=project_id).count()
+                current_filtered_members = all_members.count()
                 
                 print(f"Found {questions.count()} questions for project {project_id}")
+                print(f"Original total members: {original_total_members}, Current filtered members: {current_filtered_members}")
                 
                 for question in questions:
-                    # Get answers for this question
+                    # Get ALL answers for this question (without user filter) to calculate correct response rate
+                    all_answers_count = Answer.objects.filter(question=question).count()
+                    
+                    # Calculate the real response rate based on ORIGINAL total members, not filtered ones
+                    response_rate = (all_answers_count / original_total_members * 100) if original_total_members > 0 else 0
+                    
+                    # Get answers for this question (with user filter applied for display)
                     answers_queryset = Answer.objects.filter(question=question)
                     
-                    # Apply user filter to answers
-                    if user_filter:
+                    # Apply user filter to answers for display purposes only
+                    if user_filters:
                         try:
-                            user_id = int(user_filter)
-                            answers_queryset = answers_queryset.filter(user_id=user_id)
+                            user_ids = [int(uid) for uid in user_filters if uid]
+                            if user_ids:
+                                answers_queryset = answers_queryset.filter(user_id__in=user_ids)
+                                print(f"Question '{question.text}' - Filtering answers for users: {user_ids}")
                         except (ValueError, TypeError):
                             pass
                     
-                    answer_count = answers_queryset.count()
-                    
-                    print(f"Question '{question.text}' has {answer_count} answers")
-                    
-                    # Calculate response rate based on filtered users
-                    if user_filter:
-                        # When filtering by user, response rate is either 0% or 100%
-                        response_rate = 100.0 if answer_count > 0 else 0.0
+                    # SPECIAL CASE: If we have perspective + answer + user filters all active,
+                    # only show the question if the specific user gave the specific answer
+                    if perspective_filter and answer_filter and user_filters:
+                        try:
+                            user_ids = [int(uid) for uid in user_filters if uid]
+                            if user_ids:
+                                # Check if any of the filtered users gave the specific answer to this question
+                                if question.question_type == 'open':
+                                    specific_answer_count = Answer.objects.filter(
+                                        question=question,
+                                        user_id__in=user_ids,
+                                        text_answer__icontains=answer_filter
+                                    ).count()
+                                else:
+                                    specific_answer_count = Answer.objects.filter(
+                                        question=question,
+                                        user_id__in=user_ids,
+                                        selected_option__text__icontains=answer_filter
+                                    ).count()
+                                
+                                print(f"Question '{question.text}' - Users {user_ids} with answer '{answer_filter}': {specific_answer_count}")
+                                
+                                # Only include if the specific user(s) gave the specific answer
+                                if specific_answer_count > 0:
+                                    print(f"Including question '{question.text}' - user(s) gave specific answer")
+                                    perspective_details.append({
+                                        'id': question.id,
+                                        'question': question.text,
+                                        'type': question.question_type,
+                                        'answers': specific_answer_count,
+                                        'responseRate': response_rate
+                                    })
+                                else:
+                                    print(f"EXCLUDING question '{question.text}' - user(s) did not give the specific answer '{answer_filter}'")
+                        except (ValueError, TypeError):
+                            pass
                     else:
-                        # Normal response rate calculation
-                        response_rate = (answer_count / total_members * 100) if total_members > 0 else 0
-                    
-                    # Only include questions that have answers or if no user filter is applied
-                    if not user_filter or answer_count > 0:
-                        perspective_details.append({
-                            'id': question.id,
-                            'question': question.text,
-                            'type': question.question_type,
-                            'answers': answer_count,
-                            'responseRate': response_rate
-                        })
+                        # Normal filtering logic for other cases
+                        answer_count = answers_queryset.count()
+                        print(f"Question '{question.text}' - Answer count: {answer_count}, All answers: {all_answers_count}, Original members: {original_total_members}, Real response rate: {response_rate}%")
+                        
+                        # When user filter is active, ONLY include questions that the user actually answered
+                        # When no user filter, include all questions
+                        if user_filters:
+                            # Only include if user answered this question (answer_count > 0)
+                            if answer_count > 0:
+                                print(f"Including question '{question.text}' - user answered")
+                                perspective_details.append({
+                                    'id': question.id,
+                                    'question': question.text,
+                                    'type': question.question_type,
+                                    'answers': answer_count,
+                                    'responseRate': response_rate
+                                })
+                            else:
+                                print(f"EXCLUDING question '{question.text}' - user did not answer")
+                        else:
+                            # No user filter - include all questions
+                            print(f"Including question '{question.text}' - no user filter")
+                            perspective_details.append({
+                                'id': question.id,
+                                'question': question.text,
+                                'type': question.question_type,
+                                'answers': answer_count,
+                                'responseRate': response_rate
+                            })
                 
                 print(f"Created perspective details: {len(perspective_details)} items")
                 
@@ -1538,4 +1709,49 @@ class PerspectiveAnswersAPI(APIView):
                 'error': str(e),
                 'answers': [],
                 'total_answers': 0
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AvailableAnswersAPI(APIView):
+    """API to get unique answers for a specific question"""
+    permission_classes = [IsAuthenticated & IsProjectStaffAndReadOnly]
+    
+    def get(self, request, *args, **kwargs):
+        try:
+            project_id = self.kwargs["project_id"]
+            question_id = self.kwargs["question_id"]
+            
+            # Get the question
+            question = get_object_or_404(Question, pk=question_id, project=project_id)
+            
+            # Get unique answers for this question
+            if question.question_type == 'open':
+                # For open questions, get unique text answers
+                unique_answers = Answer.objects.filter(question=question).exclude(
+                    text_answer__isnull=True
+                ).exclude(text_answer='').values_list('text_answer', flat=True).distinct()
+                
+                answer_options = [{'text': answer, 'value': answer} for answer in unique_answers if answer]
+            else:
+                # For closed questions, get options from selected_option
+                unique_options = Answer.objects.filter(question=question).exclude(
+                    selected_option__isnull=True
+                ).select_related('selected_option').values_list('selected_option__text', flat=True).distinct()
+                
+                answer_options = [{'text': option, 'value': option} for option in unique_options if option]
+            
+            return Response({
+                'question_id': question.id,
+                'question_text': question.text,
+                'question_type': question.question_type,
+                'available_answers': answer_options
+            })
+            
+        except Exception as e:
+            print(f"Error in AvailableAnswersAPI: {e}")
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'error': str(e),
+                'available_answers': []
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

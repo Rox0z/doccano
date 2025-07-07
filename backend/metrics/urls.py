@@ -13,6 +13,7 @@ from .views import (
     DatasetDetailsAPI,
     DatasetTextsAPI,
     PerspectiveAnswersAPI,
+    AvailableAnswersAPI,
 )
 
 urlpatterns = [
@@ -27,5 +28,6 @@ urlpatterns = [
     path(route="dataset-details", view=DatasetDetailsAPI.as_view(), name="dataset_details"),
     path(route="dataset-texts", view=DatasetTextsAPI.as_view(), name="dataset_texts"),
     path(route="perspective-answers/<int:question_id>", view=PerspectiveAnswersAPI.as_view(), name="perspective_answers"),
+    path(route="available-answers/<int:question_id>", view=AvailableAnswersAPI.as_view(), name="available_answers"),
     path(route="export", view=ExportReportsAPI.as_view(), name="export_reports"),
 ]
