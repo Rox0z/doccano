@@ -7,8 +7,8 @@
         <v-btn
           :loading="isExporting"
           color="primary"
-          @click="exportToCsv"
           class="mr-2"
+          @click="exportToCsv"
         >
           <v-icon left>
             {{ mdiDownload }}
