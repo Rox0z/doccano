@@ -1773,7 +1773,7 @@ export default {
       }
       this.exporting = true
       try {
-        console.log('📄 Iniciando geração do PDF...');
+        console.log('📄 Iniciando geração do PDF com gráficos...');
         
         // Verificar se há dados para exportar
         if ((!this.datasetDetails || this.datasetDetails.length === 0) && 
@@ -1793,43 +1793,47 @@ export default {
         let yPosition = 20;
 
         // Header do documento
-        doc.setFontSize(18);
+        doc.setFontSize(20);
         doc.setFont('helvetica', 'bold');
-        doc.text('STATISTICS REPORT', 14, yPosition);
-        yPosition += 10;
+        doc.setTextColor(63, 81, 181);
+        doc.text('RELATÓRIO DE ESTATÍSTICAS', 14, yPosition);
+        yPosition += 12;
 
         doc.setFontSize(12);
         doc.setFont('helvetica', 'normal');
-        doc.text(`Project: ${this.project.name}`, 14, yPosition);
+        doc.setTextColor(0, 0, 0);
+        doc.text(`Projeto: ${this.project.name}`, 14, yPosition);
         yPosition += 6;
-        doc.text(`Generated: ${new Date().toLocaleString()}`, 14, yPosition);
-        yPosition += 10;
+        doc.text(`Gerado em: ${new Date().toLocaleString('pt-PT')}`, 14, yPosition);
+        yPosition += 12;
 
         // Active filters information
         if (this.hasActiveFilters) {
           doc.setFontSize(14);
           doc.setFont('helvetica', 'bold');
-          doc.text('ACTIVE FILTERS:', 14, yPosition);
+          doc.setTextColor(156, 39, 176);
+          doc.text('FILTROS ATIVOS:', 14, yPosition);
           yPosition += 8;
           
           doc.setFontSize(10);
           doc.setFont('helvetica', 'normal');
+          doc.setTextColor(0, 0, 0);
           
           if (this.filters.textFilter) {
-            doc.text(`• Text: ${this.filters.textFilter.substring(0, 50)}...`, 14, yPosition);
+            doc.text(`• Texto: ${this.filters.textFilter.substring(0, 50)}...`, 14, yPosition);
             yPosition += 6;
           }
           if (this.filters.discrepancyFilter) {
-            doc.text(`• Discrepancy: ${this.filters.discrepancyFilter}`, 14, yPosition);
+            doc.text(`• Discrepância: ${this.filters.discrepancyFilter}`, 14, yPosition);
             yPosition += 6;
           }
           if (this.filters.userFilter && this.filters.userFilter.length > 0) {
             const usernames = this.filters.userFilter.map(uid => this.getUsernameById(uid)).join(', ');
-            doc.text(`• Users: ${usernames}`, 14, yPosition);
+            doc.text(`• Utilizadores: ${usernames}`, 14, yPosition);
             yPosition += 6;
           }
           if (this.filters.labelFilter) {
-            doc.text(`• Label: ${this.filters.labelFilter}`, 14, yPosition);
+            doc.text(`• Etiqueta: ${this.filters.labelFilter}`, 14, yPosition);
             yPosition += 6;
           }
           if (this.filters.perspectiveFilter) {
@@ -1838,47 +1842,377 @@ export default {
             yPosition += 6;
           }
           if (this.filters.answerFilter) {
-            doc.text(`• Answer: ${this.filters.answerFilter.substring(0, 40)}...`, 14, yPosition);
+            doc.text(`• Resposta: ${this.filters.answerFilter.substring(0, 40)}...`, 14, yPosition);
             yPosition += 6;
           }
-          yPosition += 5;
+          yPosition += 8;
         }
 
-        // Overall Statistics
-        doc.setFontSize(14);
+        // Overall Statistics Table
+        doc.setFontSize(16);
         doc.setFont('helvetica', 'bold');
-        doc.text('OVERALL STATISTICS:', 14, yPosition);
+        doc.setTextColor(63, 81, 181);
+        doc.text('ESTATÍSTICAS GERAIS', 14, yPosition);
         yPosition += 8;
 
         const overallData = [
-          ['Total Examples', this.shouldShowDatasetDetails ? this.filteredDatasetDetails.length : this.stats.totalExamples],
-          ['Total Labels', this.stats.totalLabels || 0],
-          ['Total Users', this.shouldShowUserDetails ? (this.hasUserFilter ? this.filteredUserDetails.length : this.userDetails.length) : this.stats.totalUsers],
-          ['Discrepancy Rate', `${this.stats.discrepancyRate || 0}%`]
+          ['Total de Exemplos', this.shouldShowDatasetDetails ? this.filteredDatasetDetails.length : this.stats.totalExamples],
+          ['Total de Etiquetas', this.stats.totalLabels || 0],
+          ['Total de Utilizadores', this.shouldShowUserDetails ? (this.hasUserFilter ? this.filteredUserDetails.length : this.userDetails.length) : this.stats.totalUsers],
+          ['Taxa de Discrepância', `${this.stats.discrepancyRate || 0}%`]
         ];
 
         autoTable(doc, {
           startY: yPosition,
-          head: [['Metric', 'Value']],
+          head: [['Métrica', 'Valor']],
           body: overallData,
-          theme: 'striped',
+          theme: 'grid',
           headStyles: {
             fillColor: [63, 81, 181],
             textColor: 255,
-            fontSize: 10,
-            fontStyle: 'bold'
+            fontSize: 11,
+            fontStyle: 'bold',
+            halign: 'center'
           },
           bodyStyles: {
-            fontSize: 9,
-            cellPadding: 3
+            fontSize: 10,
+            cellPadding: 4
           },
           columnStyles: {
-            0: { cellWidth: 80 },
-            1: { cellWidth: 40, halign: 'center' }
+            0: { cellWidth: 100, fontStyle: 'bold' },
+            1: { cellWidth: 50, halign: 'center', fillColor: [248, 249, 250] }
           }
         });
 
-        yPosition = doc.lastAutoTable.finalY + 15;
+        yPosition = doc.lastAutoTable.finalY + 20;
+
+        // Charts Section
+        console.log('📊 Gerando gráficos para PDF...');
+        
+        try {
+          // Import Chart.js compatible with v2.9.4
+          const Chart = (await import('chart.js')).default;
+
+          // Helper function to create charts and return as images (Chart.js v2.9.4 compatible)
+          const createChartImage = (type, data, options = {}) => {
+            return new Promise((resolve) => {
+              const canvas = document.createElement('canvas');
+              canvas.width = 500;
+              canvas.height = 300;
+              
+              const ctx = canvas.getContext('2d');
+              
+              // Chart.js v2.9.4 compatible configuration
+              const chartConfig = {
+                type,
+                data,
+                options: {
+                  responsive: false,
+                  animation: {
+                    duration: 0 // Disable animation
+                  },
+                  legend: {
+                    position: 'bottom',
+                    labels: {
+                      fontSize: 12,
+                      padding: 20
+                    }
+                  },
+                  ...options
+                }
+              };
+              
+              const chart = new Chart(ctx, chartConfig);
+              
+              // Wait for chart to render then convert to image
+              setTimeout(() => {
+                const imageData = canvas.toDataURL('image/png');
+                chart.destroy();
+                resolve(imageData);
+              }, 200);
+            });
+          };
+
+          // Overall Statistics Chart (Bar Chart)
+          if (yPosition > 180) {
+            doc.addPage();
+            yPosition = 20;
+          }
+
+          doc.setFontSize(16);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(255, 152, 0);
+          doc.text('GRÁFICO DE ESTATÍSTICAS GERAIS', 14, yPosition);
+          yPosition += 12;
+
+          const overallChartData = {
+            labels: ['Exemplos', 'Etiquetas', 'Utilizadores', 'Taxa Discrepância (%)'],
+            datasets: [{
+              label: 'Estatísticas',
+              data: [
+                this.shouldShowDatasetDetails ? this.filteredDatasetDetails.length : this.stats.totalExamples,
+                this.stats.totalLabels || 0,
+                this.shouldShowUserDetails ? (this.hasUserFilter ? this.filteredUserDetails.length : this.userDetails.length) : this.stats.totalUsers,
+                this.stats.discrepancyRate || 0
+              ],
+              backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0'],
+              borderColor: ['#FF4757', '#2F80ED', '#FFA502', '#26A69A'],
+              borderWidth: 2
+            }]
+          };
+
+          const overviewChartImage = await createChartImage('bar', overallChartData, {
+            scales: {
+              yAxes: [{
+                ticks: {
+                  beginAtZero: true,
+                  fontSize: 11
+                },
+                gridLines: {
+                  color: '#E3F2FD'
+                }
+              }],
+              xAxes: [{
+                ticks: {
+                  fontSize: 11
+                },
+                gridLines: {
+                  color: '#E3F2FD'
+                }
+              }]
+            },
+            legend: {
+              display: false
+            },
+            tooltips: {
+              callbacks: {
+                title(tooltipItems) {
+                  return tooltipItems[0].xLabel;
+                },
+                label(tooltipItem) {
+                  const value = tooltipItem.yLabel;
+                  const label = tooltipItem.xLabel;
+                  if (label.includes('Taxa')) {
+                    return `${value}%`;
+                  }
+                  return `${value}`;
+                }
+              }
+            }
+          });
+
+          // Add chart image to PDF
+          doc.addImage(overviewChartImage, 'PNG', 14, yPosition, 120, 70);
+          yPosition += 85;
+
+          // Label Distribution Chart (Doughnut Chart) with percentages
+          if (this.labelDistribution && this.labelDistribution.length > 0) {
+            if (yPosition > 180) {
+              doc.addPage();
+              yPosition = 20;
+            }
+
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(33, 150, 243);
+            doc.text('DISTRIBUIÇÃO DE ETIQUETAS', 14, yPosition);
+            yPosition += 12;
+
+            const labelChartData = {
+              labels: this.labelDistribution.slice(0, 8).map(item => `${item.label} (${item.percentage}%)`),
+              datasets: [{
+                data: this.labelDistribution.slice(0, 8).map(item => item.count),
+                backgroundColor: [
+                  '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
+                  '#9966FF', '#FF9F40', '#FF6B6B', '#4ECDC4'
+                ],
+                borderColor: '#FFFFFF',
+                borderWidth: 3
+              }]
+            };
+
+            const labelChartImage = await createChartImage('doughnut', labelChartData, {
+              legend: {
+                position: 'right',
+                labels: {
+                  fontSize: 10,
+                  padding: 15,
+                  usePointStyle: true
+                }
+              },
+              tooltips: {
+                callbacks: {
+                  label(tooltipItem, data) {
+                    const dataset = data.datasets[tooltipItem.datasetIndex];
+                    const label = data.labels[tooltipItem.index];
+                    const value = dataset.data[tooltipItem.index];
+                    return `${label}: ${value} itens`;
+                  }
+                }
+              }
+            });
+
+            // Add chart image to PDF
+            doc.addImage(labelChartImage, 'PNG', 14, yPosition, 120, 70);
+            yPosition += 85;
+          }
+
+          // User Performance Chart (Bar Chart) with participation percentages
+          if (this.shouldShowUserDetails && this.userDetails.length > 0) {
+            const usersToShow = this.hasUserFilter ? this.filteredUserDetails : this.userDetails;
+            
+            if (usersToShow.length > 0) {
+              if (yPosition > 180) {
+                doc.addPage();
+                yPosition = 20;
+              }
+
+              doc.setFontSize(16);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(76, 175, 80);
+              doc.text('DESEMPENHO DOS UTILIZADORES', 14, yPosition);
+              yPosition += 12;
+
+              const userChartData = {
+                labels: usersToShow.slice(0, 6).map(user => `${user.username} (${Math.round(user.participation || 0)}%)`),
+                datasets: [{
+                  label: 'Total de Etiquetas',
+                  data: usersToShow.slice(0, 6).map(user => user.totalLabels || 0),
+                  backgroundColor: '#4CAF50',
+                  borderColor: '#388E3C',
+                  borderWidth: 2
+                }]
+              };
+
+              const userChartImage = await createChartImage('bar', userChartData, {
+                scales: {
+                  yAxes: [{
+                    ticks: {
+                      beginAtZero: true,
+                      fontSize: 11
+                    },
+                    gridLines: {
+                      color: '#E8F5E8'
+                    }
+                  }],
+                  xAxes: [{
+                    ticks: {
+                      fontSize: 10,
+                      maxRotation: 45
+                    },
+                    gridLines: {
+                      color: '#E8F5E8'
+                    }
+                  }]
+                },
+                legend: {
+                  display: false
+                },
+                tooltips: {
+                  callbacks: {
+                    title(tooltipItems) {
+                      return tooltipItems[0].xLabel;
+                    },
+                    label(tooltipItem) {
+                      const value = tooltipItem.yLabel;
+                      return `Total de Etiquetas: ${value}`;
+                    }
+                  }
+                }
+              });
+
+              // Add chart image to PDF
+              doc.addImage(userChartImage, 'PNG', 14, yPosition, 120, 70);
+              yPosition += 85;
+            }
+          }
+
+          // Perspective Response Rate Chart (Bar Chart) with response rates
+          if (this.shouldShowPerspectiveDetails && this.perspectiveDetails.length > 0) {
+            const perspectivesToShow = (this.hasUserFilter || this.hasPerspectiveFilter) ? this.filteredPerspectiveDetails : this.perspectiveDetails;
+            
+            if (perspectivesToShow.length > 0) {
+              if (yPosition > 180) {
+                doc.addPage();
+                yPosition = 20;
+              }
+
+              doc.setFontSize(16);
+              doc.setFont('helvetica', 'bold');
+              doc.setTextColor(156, 39, 176);
+              doc.text('TAXA DE RESPOSTA DAS PERSPECTIVAS', 14, yPosition);
+              yPosition += 12;
+
+              const perspectiveChartData = {
+                labels: perspectivesToShow.slice(0, 5).map(p => {
+                  const questionPreview = p.question.length > 20 ? p.question.substring(0, 20) + '...' : p.question;
+                  return `${questionPreview} (${Math.round(p.responseRate || 0)}%)`;
+                }),
+                datasets: [{
+                  label: 'Taxa de Resposta (%)',
+                  data: perspectivesToShow.slice(0, 5).map(p => Math.round(p.responseRate || 0)),
+                  backgroundColor: '#9C27B0',
+                  borderColor: '#7B1FA2',
+                  borderWidth: 2
+                }]
+              };
+
+              const perspectiveChartImage = await createChartImage('bar', perspectiveChartData, {
+                scales: {
+                  yAxes: [{
+                    ticks: {
+                      beginAtZero: true,
+                      max: 100,
+                      fontSize: 11,
+                      callback(value) {
+                        return value + '%';
+                      }
+                    },
+                    gridLines: {
+                      color: '#F3E5F5'
+                    }
+                  }],
+                  xAxes: [{
+                    ticks: {
+                      fontSize: 10,
+                      maxRotation: 45
+                    },
+                    gridLines: {
+                      color: '#F3E5F5'
+                    }
+                  }]
+                },
+                legend: {
+                  display: false
+                },
+                tooltips: {
+                  callbacks: {
+                    title(tooltipItems) {
+                      return tooltipItems[0].xLabel;
+                    },
+                    label(tooltipItem) {
+                      const value = tooltipItem.yLabel;
+                      const index = tooltipItem.index;
+                      const perspective = perspectivesToShow[index];
+                      return `Taxa de Resposta: ${value}% (${perspective.answers} respostas)`;
+                    }
+                  }
+                }
+              });
+
+              // Add chart image to PDF
+              doc.addImage(perspectiveChartImage, 'PNG', 14, yPosition, 120, 70);
+              yPosition += 85;
+            }
+          }
+
+        } catch (chartError) {
+          console.warn('Erro ao criar gráficos:', chartError);
+          doc.setFontSize(12);
+          doc.setTextColor(255, 87, 34);
+          doc.text('Falha na geração de gráficos - continuando apenas com tabelas', 14, yPosition);
+          yPosition += 15;
+        }
 
         // Dataset Details Table (if visible)
         if (this.shouldShowDatasetDetails && this.filteredDatasetDetails.length > 0) {
@@ -1888,34 +2222,35 @@ export default {
             yPosition = 20;
           }
 
-          doc.setFontSize(14);
+          doc.setFontSize(16);
           doc.setFont('helvetica', 'bold');
+          doc.setTextColor(255, 152, 0);
           doc.text(this.getDatasetDetailsTitle().toUpperCase(), 14, yPosition);
-          yPosition += 8;
+          yPosition += 10;
 
           const datasetTableData = this.filteredDatasetDetails.slice(0, 20).map(item => [
             item.id || 'N/A',
             (item.text || 'N/A').substring(0, 40) + '...',
-            item.discrepancy || 'No',
+            item.discrepancy || 'Não',
             item.participationNumbers || '0/0',
             `${Math.round(item.participationPercentage || 0)}%`,
-            item.annotationDetails ? item.annotationDetails.map(a => a.label).slice(0, 2).join(', ') : 'None'
+            item.annotationDetails ? item.annotationDetails.map(a => a.label).slice(0, 2).join(', ') : 'Nenhuma'
           ]);
 
           autoTable(doc, {
             startY: yPosition,
-            head: [['ID', 'Text', 'Discrepancy', 'Participation', '%', 'Labels']],
+            head: [['ID', 'Texto', 'Discrepância', 'Participação', '%', 'Etiquetas']],
             body: datasetTableData,
             theme: 'striped',
             headStyles: {
               fillColor: [255, 152, 0],
               textColor: 255,
-              fontSize: 8,
+              fontSize: 9,
               fontStyle: 'bold'
             },
             bodyStyles: {
-              fontSize: 7,
-              cellPadding: 2
+              fontSize: 8,
+              cellPadding: 3
             },
             columnStyles: {
               0: { cellWidth: 15 },
@@ -1938,10 +2273,11 @@ export default {
             yPosition = 20;
           }
 
-          doc.setFontSize(14);
+          doc.setFontSize(16);
           doc.setFont('helvetica', 'bold');
+          doc.setTextColor(76, 175, 80);
           doc.text(this.getUserDetailsTitle().toUpperCase(), 14, yPosition);
-          yPosition += 8;
+          yPosition += 10;
 
           const usersToShow = this.hasUserFilter ? this.filteredUserDetails : this.userDetails;
           const userTableData = usersToShow.slice(0, 15).map(user => [
@@ -1953,7 +2289,7 @@ export default {
 
           autoTable(doc, {
             startY: yPosition,
-            head: [['Username', 'Texts Labeled', 'Total Labels', 'Participation']],
+            head: [['Utilizador', 'Textos Etiquetados', 'Total Etiquetas', 'Participação']],
             body: userTableData,
             theme: 'striped',
             headStyles: {
@@ -1964,7 +2300,7 @@ export default {
             },
             bodyStyles: {
               fontSize: 9,
-              cellPadding: 2
+              cellPadding: 3
             },
             columnStyles: {
               0: { cellWidth: 60 },
@@ -1985,10 +2321,11 @@ export default {
             yPosition = 20;
           }
 
-          doc.setFontSize(14);
+          doc.setFontSize(16);
           doc.setFont('helvetica', 'bold');
-          doc.text('PERSPECTIVE DETAILS', 14, yPosition);
-          yPosition += 8;
+          doc.setTextColor(156, 39, 176);
+          doc.text('DETALHES DAS PERSPECTIVAS', 14, yPosition);
+          yPosition += 10;
 
           const perspectivesToShow = (this.hasUserFilter || this.hasPerspectiveFilter) ? this.filteredPerspectiveDetails : this.perspectiveDetails;
           const perspectiveTableData = perspectivesToShow.slice(0, 15).map(perspective => [
@@ -2000,7 +2337,7 @@ export default {
 
           autoTable(doc, {
             startY: yPosition,
-            head: [['Question', 'Type', 'Answers', 'Response Rate']],
+            head: [['Questão', 'Tipo', 'Respostas', 'Taxa de Resposta']],
             body: perspectiveTableData,
             theme: 'striped',
             headStyles: {
@@ -2011,7 +2348,7 @@ export default {
             },
             bodyStyles: {
               fontSize: 9,
-              cellPadding: 2
+              cellPadding: 3
             },
             columnStyles: {
               0: { cellWidth: 100 },
@@ -2032,10 +2369,11 @@ export default {
             yPosition = 20;
           }
 
-          doc.setFontSize(14);
+          doc.setFontSize(16);
           doc.setFont('helvetica', 'bold');
-          doc.text('LABEL DISTRIBUTION', 14, yPosition);
-          yPosition += 8;
+          doc.setTextColor(33, 150, 243);
+          doc.text('DISTRIBUIÇÃO DE ETIQUETAS', 14, yPosition);
+          yPosition += 10;
 
           const labelTableData = this.labelDistribution.slice(0, 15).map(label => [
             label.label || 'N/A',
@@ -2045,7 +2383,7 @@ export default {
 
           autoTable(doc, {
             startY: yPosition,
-            head: [['Label', 'Count', 'Percentage']],
+            head: [['Etiqueta', 'Contagem', 'Percentagem']],
             body: labelTableData,
             theme: 'striped',
             headStyles: {
@@ -2056,7 +2394,7 @@ export default {
             },
             bodyStyles: {
               fontSize: 9,
-              cellPadding: 2
+              cellPadding: 3
             },
             columnStyles: {
               0: { cellWidth: 100 },
@@ -2069,7 +2407,7 @@ export default {
         // Save PDF
         const timestamp = new Date().toISOString().split('T')[0];
         const projectName = (this.project.name || 'projeto').replace(/[^a-z0-9]/gi, '_');
-        const filename = `statistics-${projectName}-${timestamp}.pdf`;
+        const filename = `relatorio-estatisticas-${projectName}-${timestamp}.pdf`;
         
         // Use requestAnimationFrame to ensure the PDF generation is complete
         requestAnimationFrame(() => {
@@ -2077,9 +2415,9 @@ export default {
             doc.save(filename);
             // Safe toast notification
             if (this.$toast && typeof this.$toast.success === 'function') {
-              this.$toast.success('PDF exportado com sucesso');
+              this.$toast.success('📊 Relatório PDF com gráficos exportado com sucesso!');
             } else {
-              console.log('✅ PDF exportado com sucesso');
+              console.log('✅ PDF com gráficos exportado com sucesso');
             }
           } catch (saveError) {
             console.error('Error saving PDF:', saveError);

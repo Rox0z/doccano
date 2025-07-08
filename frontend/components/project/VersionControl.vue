@@ -78,11 +78,11 @@
             
             <v-btn 
               v-if="project.isOpen !== undefined ? project.isOpen : true"
-              @click="closeProject"
               :loading="loading"
               color="warning"
               block
               class="mb-2"
+              @click="closeProject"
             >
               <v-icon left>mdi-lock</v-icon>
               Close Project
@@ -90,11 +90,11 @@
             
             <v-btn 
               v-else
-              @click="reopenProject"
               :loading="loading"
               color="success"
               block
               class="mb-2"
+              @click="reopenProject"
             >
               <v-icon left>mdi-lock-open</v-icon>
               Reopen Project (Version {{ (project.currentVersion || 1) + 1 }})
@@ -161,7 +161,7 @@
       top
     >
       {{ snackbarText }}
-      <template v-slot:action="{ attrs }">
+      <template #action="{ attrs }">
         <v-btn
           color="white"
           text
